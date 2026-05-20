@@ -1,8 +1,8 @@
 import logging
 import os
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 
+from flask import Flask
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler
 
 from config import TELEGRAM_BOT_TOKEN
@@ -17,33 +17,29 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
 
-# ── Render Web Service 유지용 헬스체크 서버 ──────────────────────────────
-# Render는 Web Service 타입을 유지하려면 HTTP 포트가 열려 있어야 합니다.
-# UptimeRobot이 10분마다 이 엔드포인트를 ping해 슬립을 방지합니다.
+# ── Flask 웹 서버 (Render Web Service 슬립 방지) ─────────────────────────
+# Render는 HTTP 포트가 열려 있어야 Web Service로 인식합니다.
+# UptimeRobot이 10분마다 ping하여 15분 슬립을 방지합니다.
 
-class _HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"OK")
-
-    def do_HEAD(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.end_headers()
-
-    def log_message(self, *args):
-        pass  # HTTP 요청 로그 노이즈 억제
+flask_app = Flask(__name__)
 
 
-def _start_health_server() -> None:
+@flask_app.route("/")
+def index():
+    return "Bot is running", 200
+
+
+@flask_app.route("/health")
+def health():
+    return "OK", 200
+
+
+def _run_flask() -> None:
     port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(("0.0.0.0", port), _HealthHandler)
-    logging.getLogger(__name__).info("헬스체크 서버 시작: port=%d", port)
-    server.serve_forever()
+    flask_app.run(host="0.0.0.0", port=port)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -53,8 +49,8 @@ def main() -> None:
     if not TELEGRAM_BOT_TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN이 .env에 설정되지 않았습니다.")
 
-    # 헬스체크 서버를 데몬 스레드로 실행 (봇 종료 시 자동 소멸)
-    threading.Thread(target=_start_health_server, daemon=True).start()
+    # Flask를 데몬 스레드로 실행 → 텔레그램 봇 async 루프와 충돌 없음
+    threading.Thread(target=_run_flask, daemon=True).start()
 
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
