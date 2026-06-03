@@ -2,7 +2,7 @@ import asyncio
 import time
 import logging
 from google import genai
-from google.api_core.exceptions import ServiceUnavailable, ResourceExhausted
+from google.genai import errors as genai_errors
 from config import GEMINI_API_KEY, GEMINI_MODEL
 
 logger = logging.getLogger(__name__)
@@ -120,7 +120,7 @@ def _generate_sync(prompt: str) -> str:
         try:
             response = _client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
             return response.text
-        except (ServiceUnavailable, ResourceExhausted) as e:
+        except (genai_errors.ServerError, genai_errors.ClientError) as e:
             if attempt == len(delays):
                 raise
             logger.warning("Gemini 503/429 (시도 %d/%d), %ds 후 재시도: %s", attempt, len(delays), delay, e)
