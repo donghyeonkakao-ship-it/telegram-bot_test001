@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -9,8 +10,15 @@ _HEADERS = {
                   "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Referer": "https://m.stock.naver.com/",
     "Accept": "application/json",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
 }
 _TIMEOUT = 10
+
+
+def _ts() -> dict:
+    """캐시 우회용 타임스탬프 파라미터"""
+    return {"_": int(time.time() * 1000)}
 
 
 def _n(val, default="—") -> str:
@@ -43,7 +51,7 @@ def _strip_unit(val: str) -> str:
 def _search_sync(query: str) -> list[dict]:
     resp = httpx.get(
         "https://ac.finance.naver.com/api/search",
-        params={"q": query, "target": "stock,index"},
+        params={"q": query, "target": "stock,index", **_ts()},
         headers=_HEADERS,
         timeout=_TIMEOUT,
     )
@@ -63,13 +71,13 @@ def _get_price_sync(ticker: str) -> dict:
     # basic: 현재가·등락
     basic = httpx.get(
         f"https://m.stock.naver.com/api/stock/{ticker}/basic",
-        headers=_HEADERS, timeout=_TIMEOUT,
+        headers=_HEADERS, params=_ts(), timeout=_TIMEOUT,
     ).json()
 
     # integration: OHLC·거래량·PER/PBR·시총 등
     integ = httpx.get(
         f"https://m.stock.naver.com/api/stock/{ticker}/integration",
-        headers=_HEADERS, timeout=_TIMEOUT,
+        headers=_HEADERS, params=_ts(), timeout=_TIMEOUT,
     ).json()
 
     inf = _info_map(integ.get("totalInfos", []))
@@ -106,7 +114,7 @@ def _get_financial_sync(ticker: str) -> dict:
     try:
         resp = httpx.get(
             f"https://m.stock.naver.com/api/stock/{ticker}/finance/ratio",
-            headers=_HEADERS,
+            headers=_HEADERS, params=_ts(),
             timeout=_TIMEOUT,
         )
         resp.raise_for_status()
@@ -141,7 +149,7 @@ async def get_financial(ticker: str) -> dict:
 def _get_index_sync(code: str) -> dict:
     resp = httpx.get(
         f"https://m.stock.naver.com/api/index/{code}/basic",
-        headers=_HEADERS, timeout=_TIMEOUT,
+        headers=_HEADERS, params=_ts(), timeout=_TIMEOUT,
     )
     resp.raise_for_status()
     d = resp.json()
