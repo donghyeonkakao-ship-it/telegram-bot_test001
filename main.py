@@ -13,7 +13,14 @@ from handlers.market_handler import market_command
 from handlers.notification_handler import notification_callback, notification_command
 from handlers.help_handler import help_command
 from handlers.semi_handler import semi_command
-from handlers.stock_handler import analyze_command, market_status_command, portfolio_command, stock_command
+from handlers.stock_handler import (
+    analyze_command,
+    market_status_command,
+    portfolio_command,
+    portfolio_conversation,
+    portfolio_delete_callback,
+    stock_command,
+)
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -70,6 +77,8 @@ def main() -> None:
     app.add_handler(CommandHandler("analyze", analyze_command))
     app.add_handler(CommandHandler("portfolio", portfolio_command))
     app.add_handler(CommandHandler("market_status", market_status_command))
+    app.add_handler(portfolio_conversation)
+    app.add_handler(CallbackQueryHandler(portfolio_delete_callback, pattern=r"^pf_del_"))
 
     # 정기 알림 설정
     app.add_handler(CommandHandler("notification", notification_command))
