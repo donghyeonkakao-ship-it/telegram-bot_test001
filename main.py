@@ -14,12 +14,12 @@ from handlers.notification_handler import notification_callback, notification_co
 from handlers.help_handler import help_command
 from handlers.semi_handler import semi_command
 from handlers.stock_handler import (
-    analyze_command,
+    analyze_conversation,
     market_status_command,
     portfolio_command,
     portfolio_conversation,
     portfolio_delete_callback,
-    stock_command,
+    stock_conversation,
 )
 
 logging.basicConfig(
@@ -73,8 +73,8 @@ def main() -> None:
     app.add_handler(CommandHandler("market", market_command))
 
     # 주식 투자 보조
-    app.add_handler(CommandHandler("stock", stock_command))
-    app.add_handler(CommandHandler("analyze", analyze_command))
+    app.add_handler(stock_conversation)
+    app.add_handler(analyze_conversation)
     app.add_handler(CommandHandler("portfolio", portfolio_command))
     app.add_handler(CommandHandler("market_status", market_status_command))
     app.add_handler(portfolio_conversation)

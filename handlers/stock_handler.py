@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 # ConversationHandler 상태
 TICKER, QTY, PRICE = range(3)
+STOCK_TICKER, ANALYZE_TICKER = range(3, 5)
 
 
 # ── 공통 유틸 ──────────────────────────────────────────────────────────────
@@ -63,15 +64,7 @@ async def _render_portfolio(chat_id: int) -> tuple[str, InlineKeyboardMarkup]:
 
 # ── /stock ────────────────────────────────────────────────────────────────
 
-async def stock_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not context.args:
-        await update.message.reply_text(
-            "사용법: <code>/stock 005930</code> 또는 <code>/stock 삼성전자</code>",
-            parse_mode="HTML",
-        )
-        return
-
-    query = " ".join(context.args)
+async def _run_stock(update: Update, query: str) -> None:
     msg = await update.message.reply_text(f"🔄 <b>{query}</b> 시세 조회 중…", parse_mode="HTML")
     try:
         ticker = await _resolve_ticker(query)
@@ -81,21 +74,32 @@ async def stock_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         data = await get_price(ticker)
         await msg.edit_text(stock_report(data), parse_mode="HTML")
     except Exception as e:
-        logger.error("stock_command error: %s", e)
+        logger.error("stock error: %s", e)
         await msg.edit_text("⚠️ 시세 조회 중 오류가 발생했습니다.")
+
+
+async def stock_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if context.args:
+        await _run_stock(update, " ".join(context.args))
+        return ConversationHandler.END
+    await update.message.reply_text(
+        "📈 <b>시세 조회</b>\n\n"
+        "종목 코드 또는 종목명을 입력하세요.\n"
+        "<i>예: 005930 또는 삼성전자</i>\n\n"
+        "/cancel 로 취소",
+        parse_mode="HTML",
+    )
+    return STOCK_TICKER
+
+
+async def stock_got_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await _run_stock(update, update.message.text.strip())
+    return ConversationHandler.END
 
 
 # ── /analyze ──────────────────────────────────────────────────────────────
 
-async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not context.args:
-        await update.message.reply_text(
-            "사용법: <code>/analyze 005930</code> 또는 <code>/analyze 삼성전자</code>",
-            parse_mode="HTML",
-        )
-        return
-
-    query = " ".join(context.args)
+async def _run_analyze(update: Update, query: str) -> None:
     msg = await update.message.reply_text(f"🔄 <b>{query}</b> AI 분석 중…", parse_mode="HTML")
     try:
         ticker = await _resolve_ticker(query)
@@ -108,8 +112,27 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         sections = await analyze_stock(price_data, financial_data)
         await msg.edit_text(stock_analyze_report(price_data, sections), parse_mode="HTML")
     except Exception as e:
-        logger.error("analyze_command error: %s", e)
+        logger.error("analyze error: %s", e)
         await msg.edit_text("⚠️ AI 분석 중 오류가 발생했습니다.")
+
+
+async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if context.args:
+        await _run_analyze(update, " ".join(context.args))
+        return ConversationHandler.END
+    await update.message.reply_text(
+        "🔍 <b>AI 종목 분석</b>\n\n"
+        "종목 코드 또는 종목명을 입력하세요.\n"
+        "<i>예: 000660 또는 SK하이닉스</i>\n\n"
+        "/cancel 로 취소",
+        parse_mode="HTML",
+    )
+    return ANALYZE_TICKER
+
+
+async def analyze_got_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await _run_analyze(update, update.message.text.strip())
+    return ConversationHandler.END
 
 
 # ── /portfolio (조회 + 버튼) ──────────────────────────────────────────────
@@ -243,6 +266,24 @@ async def portfolio_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 # ── ConversationHandler 객체 (main.py에서 등록) ───────────────────────────
+
+stock_conversation = ConversationHandler(
+    entry_points=[CommandHandler("stock", stock_command)],
+    states={
+        STOCK_TICKER: [MessageHandler(filters.TEXT & ~filters.COMMAND, stock_got_ticker)],
+    },
+    fallbacks=[CommandHandler("cancel", portfolio_cancel)],
+    per_message=False,
+)
+
+analyze_conversation = ConversationHandler(
+    entry_points=[CommandHandler("analyze", analyze_command)],
+    states={
+        ANALYZE_TICKER: [MessageHandler(filters.TEXT & ~filters.COMMAND, analyze_got_ticker)],
+    },
+    fallbacks=[CommandHandler("cancel", portfolio_cancel)],
+    per_message=False,
+)
 
 portfolio_conversation = ConversationHandler(
     entry_points=[CallbackQueryHandler(portfolio_add_start, pattern=r"^pf_add$")],
