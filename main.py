@@ -7,10 +7,13 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler
 
 from config import TELEGRAM_BOT_TOKEN
 from handlers.ai_handler import ai_command
-from handlers.breaking_news_handler import breaking_command
+from handlers.breaking_news_handler import auto_breaking_job
+from services.breaking_detector import warmup
 from handlers.market_handler import market_command
 from handlers.notification_handler import notification_callback, notification_command
+from handlers.help_handler import help_command
 from handlers.semi_handler import semi_command
+from handlers.stock_handler import analyze_command, market_status_command, portfolio_command, stock_command
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -54,19 +57,29 @@ def main() -> None:
 
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
+    # 도움말
+    app.add_handler(CommandHandler("help", help_command))
+
     # 수동 조회 명령어
     app.add_handler(CommandHandler("ai", ai_command))
     app.add_handler(CommandHandler("semi", semi_command))
     app.add_handler(CommandHandler("market", market_command))
 
+    # 주식 투자 보조
+    app.add_handler(CommandHandler("stock", stock_command))
+    app.add_handler(CommandHandler("analyze", analyze_command))
+    app.add_handler(CommandHandler("portfolio", portfolio_command))
+    app.add_handler(CommandHandler("market_status", market_status_command))
+
     # 정기 알림 설정
     app.add_handler(CommandHandler("notification", notification_command))
     app.add_handler(CallbackQueryHandler(notification_callback, pattern=r"^notif_"))
 
-    # 긴급 속보 (관리자 전용)
-    app.add_handler(CommandHandler("breaking", breaking_command))
+    # 자동 속보 감지 (10분마다 RSS 폴링, 워밍업 후 신규 기사만 발송)
+    app.job_queue.run_once(lambda ctx: warmup(), when=0, name="breaking_warmup")
+    app.job_queue.run_repeating(auto_breaking_job, interval=600, first=30, name="breaking_news")
 
-    print("🚀 봇 시작! 명령어: /ai /semi /market /notification /breaking")
+    print("🚀 봇 시작! 명령어: /help /ai /semi /market /notification /stock /analyze /portfolio /market_status")
     app.run_polling(drop_pending_updates=True)
 
 

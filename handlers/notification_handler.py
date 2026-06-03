@@ -90,8 +90,8 @@ async def _digest_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         ai_articles = ai_rss + naver_ai
         semi_articles = semi_rss + naver_semi
 
-        ai_summary, semi_summary = await summarize_digest(ai_articles, semi_articles)
-        report = digest_report(ai_summary, semi_summary)
+        sections = await summarize_digest(ai_articles, semi_articles)
+        report = digest_report(sections)
 
         await context.bot.send_message(
             chat_id=chat_id,

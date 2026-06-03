@@ -31,4 +31,13 @@ NAVER_SEARCH_URL = "https://openapi.naver.com/v1/search/news.json"
 NAVER_AI_QUERY = "AI 인공지능 LLM 생성형AI"
 NAVER_SEMI_QUERY = "반도체 HBM TSMC 엔비디아 파운드리"
 
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.0-flash"
+
+# 시황 리포트용 주요 종목
+KIS_WATCHLIST = {
+    "005930": "삼성전자",
+    "000660": "SK하이닉스",
+    "035420": "NAVER",
+    "005380": "현대차",
+    "051910": "LG화학",
+}
