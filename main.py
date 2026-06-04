@@ -85,7 +85,10 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(notification_callback, pattern=r"^notif_"))
 
     # 자동 속보 감지 (10분마다 RSS 폴링, 워밍업 후 신규 기사만 발송)
-    app.job_queue.run_once(lambda ctx: warmup(), when=0, name="breaking_warmup")
+    async def _warmup_job(ctx):
+        await warmup()
+
+    app.job_queue.run_once(_warmup_job, when=0, name="breaking_warmup")
     app.job_queue.run_repeating(auto_breaking_job, interval=600, first=30, name="breaking_news")
 
     print("🚀 봇 시작! 명령어: /help /ai /semi /market /notification /stock /analyze /portfolio /market_status")

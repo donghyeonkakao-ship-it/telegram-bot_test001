@@ -56,12 +56,13 @@ def _search_sync(query: str) -> list[dict]:
         timeout=_TIMEOUT,
     )
     resp.raise_for_status()
-    items = resp.json().get("items", [[]])[0]
+    groups = resp.json().get("items", [])
+    items = groups[0] if groups else []
     return [{"ticker": item[1], "name": item[0]} for item in items if len(item) >= 2]
 
 
 async def search_ticker(query: str) -> list[dict]:
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _search_sync, query)
 
 
@@ -135,12 +136,12 @@ def _get_financial_sync(ticker: str) -> dict:
 
 
 async def get_price(ticker: str) -> dict:
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _get_price_sync, ticker)
 
 
 async def get_financial(ticker: str) -> dict:
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _get_financial_sync, ticker)
 
 
@@ -163,7 +164,7 @@ def _get_index_sync(code: str) -> dict:
 
 
 async def get_market_overview(watchlist: dict[str, str]) -> dict:
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     kospi_fut  = loop.run_in_executor(None, _get_index_sync, "KOSPI")
     kosdaq_fut = loop.run_in_executor(None, _get_index_sync, "KOSDAQ")

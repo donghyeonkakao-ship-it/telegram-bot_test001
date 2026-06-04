@@ -129,7 +129,7 @@ def _generate_sync(prompt: str) -> str:
 
 
 async def _generate(prompt: str) -> str:
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _generate_sync, prompt)
 
 
@@ -212,7 +212,7 @@ async def analyze_stock(price_data: dict, financial_data: dict) -> dict[str, str
     lines = [
         f"종목명: {price_data.get('name')} ({price_data.get('ticker')})",
         f"현재가: {price_data.get('price')}원  전일대비: {price_data.get('sign')}{price_data.get('change_rate')}%",
-        f"PER: {price_data.get('per')}  PBR: {price_data.get('pbr')}",
+        f"PER: {price_data.get('per')}  PBR: {price_data.get('pbr')}  EPS: {price_data.get('eps')}원",
         f"시가총액: {price_data.get('market_cap')}",
         f"52주 고가: {price_data.get('w52_high')}  52주 저가: {price_data.get('w52_low')}",
     ]
@@ -222,7 +222,6 @@ async def analyze_stock(price_data: dict, financial_data: dict) -> dict[str, str
             f"부채비율: {financial_data.get('debt_ratio')}%",
             f"영업이익률: {financial_data.get('operating_margin')}%",
             f"순이익률: {financial_data.get('net_margin')}%",
-            f"EPS: {financial_data.get('eps')}원",
         ]
     prompt = f"{_STOCK_ANALYSIS_PROMPT}\n\n[종목 데이터]\n" + "\n".join(lines)
     raw = await _generate(prompt)

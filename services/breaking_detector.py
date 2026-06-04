@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 _seen_urls: set[str] = set()
 _warmed_up: bool = False
+_MAX_SEEN_URLS = 3000  # 무한 증가 방지 — 초과 시 재시딩으로 리셋
 
 # 이 중 하나라도 제목에 포함되면 속보로 판단
 _BREAKING_KEYWORDS = [
@@ -77,6 +78,12 @@ async def warmup() -> None:
 async def detect_breaking_news() -> list[dict]:
     """새로운 속보 기사 목록을 반환합니다."""
     global _warmed_up
+
+    if len(_seen_urls) > _MAX_SEEN_URLS:
+        _seen_urls.clear()
+        _warmed_up = False
+        logger.info("_seen_urls 한도 초과, 재시딩 중")
+
     articles = await _fetch_all()
 
     if not _warmed_up:
