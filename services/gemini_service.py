@@ -3,11 +3,18 @@ import time
 import logging
 from google import genai
 from google.genai import errors as genai_errors
-from config import GEMINI_API_KEY, GEMINI_MODEL
+from config import GEMINI_API_KEY, GEMINI_API_KEY_2, GEMINI_MODEL
 
 logger = logging.getLogger(__name__)
 
-_client = genai.Client(api_key=GEMINI_API_KEY)
+# 등록된 키 순서대로 클라이언트 생성 — 429 발생 시 다음 키로 전환
+_clients: list[genai.Client] = [
+    genai.Client(api_key=k)
+    for k in [GEMINI_API_KEY, GEMINI_API_KEY_2]
+    if k
+]
+if not _clients:
+    raise RuntimeError("GEMINI_API_KEY가 설정되지 않았습니다.")
 
 # 섹션 구분자 기반 출력 → formatter가 파싱 후 HTML 적용
 _AI_SYSTEM_PROMPT = """당신은 AI 산업 전문 애널리스트입니다.
@@ -115,17 +122,33 @@ def _parse_sections(raw: str) -> dict[str, str]:
 
 
 def _generate_sync(prompt: str) -> str:
-    delays = [5, 15, 30]
-    for attempt, delay in enumerate(delays, start=1):
+    """429 → 다음 키로 전환, 503 → 최대 3회 딜레이 재시도."""
+    server_delays = [5, 15, 30]
+    server_retry = 0
+    quota_exhausted: set[int] = set()
+
+    while True:
+        available = [i for i in range(len(_clients)) if i not in quota_exhausted]
+        if not available:
+            raise RuntimeError("모든 Gemini API 키 한도 초과 (RESOURCE_EXHAUSTED)")
+
+        idx = available[0]
         try:
-            response = _client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+            response = _clients[idx].models.generate_content(model=GEMINI_MODEL, contents=prompt)
             return response.text
-        except (genai_errors.ServerError, genai_errors.ClientError) as e:
-            if attempt == len(delays):
+        except genai_errors.ClientError as e:
+            # 429 RESOURCE_EXHAUSTED → 현재 키 소진 표시 후 다음 키 시도
+            logger.warning("Gemini 키 %d/%d 한도 초과, 다음 키로 전환: %s", idx + 1, len(_clients), e)
+            quota_exhausted.add(idx)
+        except genai_errors.ServerError as e:
+            # 503 → 딜레이 후 동일 키 재시도
+            if server_retry >= len(server_delays):
                 raise
-            logger.warning("Gemini 503/429 (시도 %d/%d), %ds 후 재시도: %s", attempt, len(delays), delay, e)
+            delay = server_delays[server_retry]
+            server_retry += 1
+            logger.warning("Gemini 503 (키 %d/%d, 재시도 %d), %ds 대기: %s",
+                           idx + 1, len(_clients), server_retry, delay, e)
             time.sleep(delay)
-    raise RuntimeError("Gemini 재시도 초과")
 
 
 async def _generate(prompt: str) -> str:
