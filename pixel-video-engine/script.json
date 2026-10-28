@@ -1,0 +1,26 @@
+{
+  "title": "샘플",
+  "lines": [
+    {
+      "text": "확률은 50%인데,",
+      "start": 0.0,
+      "end": 2.4,
+      "scene": "nether_bar",
+      "props": { "left": 50, "right": 50 }
+    },
+    {
+      "text": "이 방송에서는",
+      "start": 2.4,
+      "end": 5.2,
+      "scene": "nether_bar",
+      "props": { "left": 50, "right": 50 }
+    },
+    {
+      "text": "70% 가까이 나왔어",
+      "start": 5.2,
+      "end": 10.0,
+      "scene": "nether_bar",
+      "props": { "left": 50, "right": 70 }
+    }
+  ]
+}
