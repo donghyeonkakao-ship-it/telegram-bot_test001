@@ -96,3 +96,43 @@ export function drawSprite(
     }
   }
 }
+
+// ── 그리드 조립 도구 ─────────────────────────────────────
+// 포즈가 여러 개인 스프라이트는 부위 그리드(머리·팔·검 …)를 찍어서 조립한다. 결과도 문자 그리드다.
+
+export type Grid = string[];
+
+export function blankGrid(width: number, height: number): Grid {
+  return Array.from({ length: height }, () => '.'.repeat(width));
+}
+
+/** base 위 (x, y)에 part를 찍는다. part의 '.'은 투명, 범위 밖은 잘린다. */
+export function stamp(base: Grid, part: Grid, x: number, y: number): Grid {
+  const out = base.map((row) => row.split(''));
+  part.forEach((row, py) => {
+    for (let px = 0; px < row.length; px++) {
+      const ch = row[px];
+      const ty = y + py;
+      const tx = x + px;
+      if (ch === '.' || ty < 0 || ty >= out.length || tx < 0 || tx >= out[ty].length) continue;
+      out[ty][tx] = ch;
+    }
+  });
+  return out.map((r) => r.join(''));
+}
+
+/** 시계방향 90도 회전 */
+export function rotateCW(g: Grid): Grid {
+  const h = g.length;
+  const w = g[0].length;
+  return Array.from({ length: w }, (_, y) => Array.from({ length: h }, (_, x) => g[h - 1 - x][y]).join(''));
+}
+
+export function flipGridY(g: Grid): Grid {
+  return [...g].reverse();
+}
+
+/** 반복 타일(블록 텍스처) 한 장 */
+export function defineTexture(name: string, colors: SpriteColors, rows: Grid): SpriteFrame {
+  return defineSprite(name, colors, { tile: [rows] }).anims.tile[0];
+}

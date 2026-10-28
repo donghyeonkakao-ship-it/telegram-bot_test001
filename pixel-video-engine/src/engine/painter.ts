@@ -14,6 +14,8 @@ export type TextOptions = {
   color: PaletteColor;
   /** 1px 외곽선 색 (8방향) */
   outline?: PaletteColor;
+  /** Minecraft식 그림자: 오른쪽 아래로 1px */
+  shadow?: PaletteColor;
   align?: TextAlign;
 };
 
@@ -129,6 +131,47 @@ export class Painter {
     }
   }
 
+  /**
+   * 영역을 픽셀 단위 함수로 칠한다. colorAt은 현재 오프셋 기준 좌표(=월드 좌표)를 받으므로
+   * 텍스처가 카메라와 함께 움직인다. null이면 투명. 같은 색이 이어지면 사각형 하나로 그린다.
+   */
+  pattern(x: number, y: number, w: number, h: number, colorAt: (wx: number, wy: number) => PaletteColor | null): void {
+    const [x0, y0, rw, rh] = [r(x), r(y), r(w), r(h)];
+    for (let wy = y0; wy < y0 + rh; wy++) {
+      let runStart = x0;
+      let runColor: PaletteColor | null = null;
+      for (let wx = x0; wx <= x0 + rw; wx++) {
+        const c = wx < x0 + rw ? colorAt(wx, wy) : null;
+        if (c !== runColor || wx === x0 + rw) {
+          if (runColor) this.rect(runStart, wy, wx - runStart, 1, runColor);
+          runStart = wx;
+          runColor = c;
+        }
+      }
+    }
+  }
+
+  /** 반복 텍스처(16x16 블록 등)로 영역을 채운다. 텍셀 격자는 (originX, originY) 기준. */
+  texture(
+    tex: SpriteFrame,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    { originX = 0, originY = 0, map }: { originX?: number; originY?: number; map?: (c: PaletteColor) => PaletteColor } = {},
+  ): void {
+    const mod = (a: number, m: number) => ((a % m) + m) % m;
+    this.pattern(x, y, w, h, (wx, wy) => {
+      const c = tex.pixels[mod(wy - originY, tex.height) * tex.width + mod(wx - originX, tex.width)];
+      return c && map ? map(c) : c;
+    });
+  }
+
+  /** 체커보드 디더링 (반투명 대신) */
+  dither(x: number, y: number, w: number, h: number, color: PaletteColor): void {
+    this.pattern(x, y, w, h, (wx, wy) => ((wx + wy) & 1 ? null : color));
+  }
+
   sprite(frame: SpriteFrame, x: number, y: number, opts?: DrawSpriteOptions): void {
     drawSprite(this.ctx, frame, r(x) + this.ox, r(y) + this.oy, opts);
   }
@@ -139,7 +182,7 @@ export class Painter {
   }
 
   /** Galmuri11 픽셀 텍스트. (x, y)는 정렬 기준점의 상단. */
-  text(text: string, x: number, y: number, { color, outline, align = 'left' }: TextOptions): void {
+  text(text: string, x: number, y: number, { color, outline, shadow, align = 'left' }: TextOptions): void {
     const m = getTextMask(text);
     let x0 = r(x);
     if (align === 'center') x0 -= Math.floor(m.width / 2);
@@ -159,9 +202,11 @@ export class Painter {
         }
       }
     }
-    for (let my = 0; my < m.height; my++) {
-      for (let mx = 0; mx < m.width; mx++) {
-        if (at(mx, my)) this.rect(x0 + mx, y0 + my, 1, 1, color);
+    for (const [dx, c] of shadow ? ([[1, shadow], [0, color]] as const) : ([[0, color]] as const)) {
+      for (let my = 0; my < m.height; my++) {
+        for (let mx = 0; mx < m.width; mx++) {
+          if (at(mx, my)) this.rect(x0 + mx + dx, y0 + my + dx, 1, 1, c);
+        }
       }
     }
   }

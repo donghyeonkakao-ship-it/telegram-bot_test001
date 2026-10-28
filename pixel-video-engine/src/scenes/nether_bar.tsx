@@ -6,216 +6,181 @@ import { LOGICAL_HEIGHT, LOGICAL_WIDTH, PixelCanvas } from '../engine/PixelCanva
 import { defineScene, type SceneProps } from '../engine/scene';
 import { hash01, randInt, seededList } from '../engine/seededRandom';
 import { chainTween } from '../engine/tween';
-import { nether as C } from '../palette';
-import { faceIcon } from '../sprites/faceIcon';
-import { flameSpirit } from '../sprites/flameSpirit';
-import { hero } from '../sprites/hero';
+import { nether as C, type PaletteColor } from '../palette';
+import { blaze } from '../sprites/blaze';
+import { HERO_BODY_X, HERO_H, hero, heroHead } from '../sprites/hero';
+import { BLOCK, cobblestone, darkenRack, emeraldBlock, glowstone, lavaAt, netherrack } from '../textures/blocks';
 
-// 장면: 용암 동굴에서 "정상 확률" 돌 막대와 "실제 결과" 초록 블록 막대를 비교한다.
+// 장면: Minecraft 네더. "정상 확률" 조약돌 기둥과 "실제 결과" 에메랄드 블록 기둥을 비교한다.
+// 월드는 1블록 = 16px 격자. 기둥은 반블록(슬랩, 8px) = 10% 단위.
 
 const propsSchema = z.object({
-  /** 왼쪽 회색 돌 막대(기준 확률) % */
+  /** 왼쪽 조약돌 기둥(기준 확률) % */
   left: z.number().min(0).max(100),
-  /** 오른쪽 초록 블록 막대(실제 값) % — 줄이 바뀌면 이전 값에서 이어서 차오른다 */
+  /** 오른쪽 에메랄드 기둥(실제 값) % — 줄이 바뀌면 이전 값에서 이어서 쌓인다 */
   right: z.number().min(0).max(100),
 });
 
 type Props = z.output<typeof propsSchema>;
 
 // ── 레이아웃 (논리 좌표 320x180) ──────────────────────────
-const W = LOGICAL_WIDTH;
 const H = LOGICAL_HEIGHT;
-const LAVA_Y = 135; // 하단 1/4
-const FLOOR_Y = 128; // 바닥 윗면 = 막대 바닥
-const PX_PER_PERCENT = 1; // 100% = 100px
+const CEIL_Y = BLOCK; // 천장 블록 한 줄
+const FLOOR_Y = 120; // 바닥(네더랙 한 줄) 윗면 = 기둥 바닥
+const LAVA_Y = FLOOR_Y + BLOCK; // 136, 하단 약 1/4이 용암 바다
 const CAMERA_MAX = 32;
-const WORLD_W = W + CAMERA_MAX;
+const WORLD_W = LOGICAL_WIDTH + CAMERA_MAX;
+const COLS = Math.ceil(WORLD_W / BLOCK);
 
-const LEFT_BAR = { x: 30, w: 22 };
-const RIGHT_BAR = { x: 258, w: 22 };
-const BLOCK = 5; // 초록 막대 블록 1칸 = 5%
-const FILL_FRAMES = 24; // 차오르기 약 1초
-const HERO_X = 128;
-const HERO_SCALE = 2;
+const SLAB = 8; // 반블록 = 10%
+const PX_PER_PERCENT = SLAB / 10;
+const LEFT_BAR = { x: 20, w: BLOCK * 2 };
+const RIGHT_BAR = { x: 250, w: BLOCK * 2 };
+const FILL_FRAMES = 24; // 쌓이기 약 1초
+const HERO_X = 128; // 몸 왼쪽 끝(월드)
 
-// 카메라 팬(최대 32px) 동안에도 막대·라벨 영역(화면 x 18~64, 250~320)을 가로지르지 않는 위치
-const LAVA_FALLS = [
-  { x: 12, w: 5 },
-  { x: 100, w: 5 },
-  { x: 180, w: 4 },
-  { x: 236, w: 6 },
-];
+// 천장: 열마다 아래로 매달린 네더랙 블록 수, 그 아래 발광석
+const CEIL_DEPTH = [1, 2, 1, 1, 1, 0, 0, 0, 1, 2, 1, 0, 1, 0, 0, 0, 1, 2, 1, 0, 1, 2];
+const GLOWSTONE = new Set([3, 9, 13, 19, 20]);
+// 용암폭포 열 (천장 구멍에서 쏟아짐). 카메라 팬 중에도 기둥·라벨 영역을 가로지르지 않는 위치
+const LAVA_FALL_COLS = [6, 11, 14];
 
 const EMBERS = seededList(0xe1b3, 26, (rng) => ({
   x: Math.floor(rng() * WORLD_W),
   phase: Math.floor(rng() * 200),
   speed: 0.5 + rng() * 0.7,
-  sway: rng() * 6,
+  sway: rng() * 5,
   hot: rng() < 0.4,
 }));
 
-const SPIRITS = seededList(0x5b17, 7, (rng, i) => ({
-  // 화면 폭을 7칸으로 나눠 한 칸에 하나씩, 칸 안에서 위치는 랜덤
-  x: Math.floor((i * WORLD_W) / 7 + rng() * (WORLD_W / 7 - 12)),
-  y: randInt(rng, 14, 84),
+const BLAZES = seededList(0xb1a2e, 6, (rng, i) => ({
+  // 월드 폭을 6칸으로 나눠 한 칸에 하나씩
+  x: Math.floor((i * WORLD_W) / 6 + rng() * (WORLD_W / 6 - blaze.width)),
+  y: randInt(rng, 40, FLOOR_Y - blaze.height - 10),
   phase: randInt(rng, 0, 31),
-  drift: randInt(rng, 3, 8),
+  drift: randInt(rng, 2, 6),
 }));
 
-// ── 배경 레이어 ────────────────────────────────────────────
+// ── 월드 레이어 ───────────────────────────────────────────
 
-function drawBricks(p: Painter) {
-  const BW = 16;
-  const BH = 8;
-  p.rect(0, 0, WORLD_W, FLOOR_Y, C.mortar);
-  for (let row = 0; row * BH < FLOOR_Y; row++) {
-    const offset = row % 2 === 0 ? 0 : BW / 2;
-    for (let col = -1; col * BW < WORLD_W; col++) {
-      const x = col * BW + offset;
-      const y = row * BH;
-      const n = hash01(col, row, 7);
-      // 아래쪽(용암 가까이)일수록 밝은 벽돌이 많다
-      const glow = row / (FLOOR_Y / BH);
-      const fill = n < 0.15 + glow * 0.35 ? C.brickLight : n < 0.75 ? C.brickMid : C.brickDark;
-      p.rect(x, y, BW - 1, BH - 1, fill);
-      p.rect(x, y, BW - 1, 1, fill === C.brickLight ? C.lavaDark : C.brickLight);
-      if (n > 0.85) p.rect(x + 3 + Math.floor(n * 40) % 8, y + 3, 2, 1, C.brickDark); // 금
-    }
+function drawCave(p: Painter, step: number) {
+  // 먼 벽: 한 단계 어두운 네더랙
+  p.texture(netherrack, 0, CEIL_Y, WORLD_W, FLOOR_Y - CEIL_Y, { map: darkenRack });
+
+  // 용암폭포 (천장 구멍 → 바닥 뒤 용암 바다)
+  for (const col of LAVA_FALL_COLS) {
+    p.pattern(col * BLOCK, 0, BLOCK, LAVA_Y, (wx, wy) => lavaAt(wx, wy, step, 3));
   }
-  // 천장 쪽 어둠 (디더링)
-  for (let y = 0; y < 14; y++) {
-    for (let x = 0; x < WORLD_W; x++) {
-      const density = 1 - y / 14;
-      if (((x + y) % 2 === 0 && density > 0.3) || density > 0.85) p.pixel(x, y, C.void);
-    }
+
+  // 천장 + 매달린 블록 + 발광석
+  for (let col = 0; col < COLS; col++) {
+    const x = col * BLOCK;
+    if (!LAVA_FALL_COLS.includes(col)) p.texture(netherrack, x, 0, BLOCK, CEIL_Y);
+    const depth = CEIL_DEPTH[col] ?? 0;
+    if (depth > 0) p.texture(netherrack, x, CEIL_Y, BLOCK, depth * BLOCK);
+    if (GLOWSTONE.has(col)) p.texture(glowstone, x, CEIL_Y + depth * BLOCK, BLOCK, BLOCK);
   }
 }
 
-function drawLavaFalls(p: Painter, step: number) {
-  for (const f of LAVA_FALLS) {
-    for (let y = 0; y < FLOOR_Y + 2; y++) {
-      const t = (((y - step * 3) % 10) + 10) % 10;
-      const core = t < 2 ? C.lavaHot : t < 6 ? C.lavaLight : C.lavaMid;
-      p.rect(f.x - 1, y, 1, 1, C.lavaDark);
-      p.rect(f.x, y, 1, 1, C.lavaMid);
-      p.rect(f.x + 1, y, f.w - 2, 1, core);
-      p.rect(f.x + f.w - 1, y, 1, 1, C.lavaMid);
-      p.rect(f.x + f.w, y, 1, 1, C.lavaDark);
-    }
-  }
-}
-
-function drawFloor(p: Painter) {
-  p.rect(0, FLOOR_Y, WORLD_W, LAVA_Y - FLOOR_Y + 2, C.brickDark);
-  p.rect(0, FLOOR_Y, WORLD_W, 1, C.stoneMid);
-  p.rect(0, FLOOR_Y + 1, WORLD_W, 1, C.stoneDark);
-  for (let x = 0; x < WORLD_W; x += 6) {
-    const n = hash01(x, 91);
-    p.rect(x, FLOOR_Y + 3 + Math.floor(n * 3), 3, 1, C.void);
-  }
-}
-
-function drawLava(p: Painter, step: number) {
-  const CELL = 2;
-  for (let y = LAVA_Y - 2; y < H; y += CELL) {
-    for (let x = 0; x < WORLD_W; x += CELL) {
-      // 표면은 1px 단위로 출렁인다
-      const surface = LAVA_Y + Math.round(Math.sin(x * 0.18 + step * 0.9));
-      if (y + CELL <= surface) continue;
-      const v =
-        Math.sin(x * 0.11 + step * 0.6) + Math.sin(y * 0.45 - step * 0.8 + x * 0.03) + hash01(x, y, step >> 1) * 0.9;
-      const color = v > 2.0 ? C.lavaHot : v > 1.2 ? C.lavaLight : v > -0.2 ? C.lavaMid : C.lavaDark;
-      const top = Math.max(y, surface);
-      p.rect(x, top, CELL, y + CELL - top, y < surface + 2 ? C.lavaLight : color);
-    }
-  }
+function drawGround(p: Painter, step: number) {
+  p.texture(netherrack, 0, FLOOR_Y, WORLD_W, BLOCK);
+  p.pattern(0, LAVA_Y, WORLD_W, H - LAVA_Y, (wx, wy) => lavaAt(wx, wy, step));
 }
 
 function drawEmbers(p: Painter, step: number) {
   EMBERS.forEach((e, i) => {
-    const rise = (e.phase + step * e.speed) % (LAVA_Y - 4);
+    const rise = (e.phase + step * e.speed) % (LAVA_Y - CEIL_Y);
     const y = LAVA_Y - 2 - rise;
     const x = e.x + Math.sin((step + e.phase) * 0.15) * e.sway;
     if (hash01(i, step >> 1, 3) < 0.25) return; // 깜빡임
     p.pixel(x, y, e.hot ? C.lavaHot : C.lavaLight);
-    if (rise < 30) p.pixel(x, y + 1, C.lavaMid); // 막 튀어오른 불씨는 꼬리가 있다
   });
 }
 
-function drawSpirits(p: Painter, step: number) {
+function drawBlazes(p: Painter, step: number) {
   const BOB = [0, -1, -2, -1];
-  for (const s of SPIRITS) {
-    const t = step + s.phase;
+  BLAZES.forEach((b, i) => {
+    const t = step + b.phase;
     const bob = BOB[Math.floor(t / 2) % 4];
-    const dx = Math.sin(t / 14) * s.drift;
-    const facingLeft = Math.cos(t / 14) < 0;
-    const frame = flameSpirit.anims.float[t % 2];
-    p.sprite(frame, s.x + dx, s.y + bob, { flipX: facingLeft });
-  }
+    const x = Math.round(b.x + Math.sin(t / 14) * b.drift);
+    const y = b.y + bob;
+    p.sprite(blaze.anims.spin[t % 4], x, y);
+    // 머리 위로 피어오르는 연기
+    for (let k = 0; k < 3; k++) {
+      const age = (t + k * 3) % 9;
+      if (hash01(i, k, Math.floor((t + k * 3) / 9)) < 0.3) continue;
+      p.pixel(x + 7 + Math.floor(hash01(i, k, 7) * 6), y - 1 - age, age < 4 ? C.stone : C.shadow);
+    }
+  });
 }
 
 function drawHero(p: Painter, frame: number, lineStartFrame: number) {
-  // 줄이 바뀔 때마다 한 번 휘두르고, 나머지는 숨쉬기 idle
+  // 줄이 바뀔 때마다 한 번 휘두르고(휩쓸기 공격), 나머지는 숨쉬기 idle
   const atk = onceFrame(frame, lineStartFrame, 3, 2);
   const sprite = atk !== null ? hero.anims.attack[atk] : hero.anims.idle[loopFrame(frame, 2, 3)];
-  p.sprite(sprite, HERO_X, FLOOR_Y - hero.height * HERO_SCALE, { scale: HERO_SCALE });
+  p.sprite(sprite, HERO_X - HERO_BODY_X, FLOOR_Y - HERO_H);
 }
 
-// ── 막대 UI (화면 고정) ───────────────────────────────────
+// ── 기둥 UI (화면 고정) ───────────────────────────────────
 
-function drawStoneBar(p: Painter, percent: number) {
+/** Minecraft 이름표: 검은 판 + 글씨. bottom = 판 아래쪽 y */
+function nameTag(p: Painter, text: string, cx: number, bottom: number, color: PaletteColor = C.white) {
+  const { width, height } = p.measureText(text);
+  const x = Math.round(cx - width / 2);
+  const y = bottom - height;
+  p.rect(x - 1, y - 1, width + 1, height, C.black);
+  p.text(text, x, y - 1, { color });
+}
+
+function drawStonePillar(p: Painter, percent: number) {
   const { x, w } = LEFT_BAR;
   const h = Math.round(percent * PX_PER_PERCENT);
   const top = FLOOR_Y - h;
   if (h > 0) {
-    p.rect(x - 1, top - 1, w + 2, h + 1, C.void);
-    p.rect(x, top, w, h, C.stoneMid);
-    p.rect(x, top, 2, h, C.stoneLight);
-    p.rect(x + w - 2, top, 2, h, C.stoneDark);
-    p.rect(x, top, w, 1, C.stoneLight);
-    // 돌 블록 이음매 (바닥 기준 10px마다, 엇갈린 세로 이음)
-    for (let k = 1; k * 10 < h; k++) {
-      const sy = FLOOR_Y - k * 10;
-      p.rect(x + 2, sy, w - 4, 1, C.stoneDark);
-      p.rect(x + (k % 2 === 0 ? 8 : 14), sy + 1, 1, 9, C.stoneDark);
-    }
+    p.frame(x - 1, top - 1, w + 2, h + 1, C.black);
+    p.texture(cobblestone, x, top, w, h, { originX: x, originY: FLOOR_Y });
   }
-  p.text(`정상 ${Math.round(percent)}%`, x + w / 2, top - 16, { color: C.white, outline: C.void, align: 'center' });
+  nameTag(p, `정상 ${Math.round(percent)}%`, x + w / 2, top - 4);
 }
 
-function drawBlockBar(p: Painter, value: number, target: number, compareTo: number) {
+function drawEmeraldPillar(p: Painter, value: number, target: number, compareTo: number, step: number) {
   const { x, w } = RIGHT_BAR;
-  const cx = x + Math.floor(w / 2);
+  const cx = x + w / 2;
 
-  // 빈 트랙 (100%)
-  const trackH = 100 * PX_PER_PERCENT;
-  p.rect(x - 1, FLOOR_Y - trackH - 1, w + 2, trackH + 1, C.void);
-  p.rect(x, FLOOR_Y - trackH, w, trackH, C.mortar);
-
-  // 블록 단위로 채우기
-  const blocks = Math.round(value / BLOCK);
-  const bh = BLOCK * PX_PER_PERCENT;
-  for (let b = 0; b < blocks; b++) {
-    const by = FLOOR_Y - (b + 1) * bh;
-    p.rect(x, by, w, bh, C.green);
-    p.rect(x, by, w, 1, C.greenLight);
-    p.rect(x, by, 1, bh, C.greenLight);
-    p.rect(x + w - 1, by, 1, bh, C.greenDark);
-    p.rect(x, by + bh - 1, w, 1, C.greenDark);
+  // 반블록(슬랩) 단위로 쌓기
+  const slabs = Math.round(value / 10);
+  const h = slabs * SLAB;
+  const top = FLOOR_Y - h;
+  if (h > 0) {
+    p.frame(x - 1, top - 1, w + 2, h + 1, C.black);
+    p.texture(emeraldBlock, x, top, w, h, { originX: x, originY: FLOOR_Y });
+    p.rect(x, top, w, 1, C.emeraldLight); // 맨 위 슬랩 윗면
   }
-  const fillTop = FLOOR_Y - blocks * bh;
 
   // 50% 기준 점선 + 라벨
   const midY = FLOOR_Y - 50 * PX_PER_PERCENT;
-  p.dashedHLine(x - 6, midY, w + 12, C.white, 2, 2);
-  p.text('50%', x + w + 9, midY - 6, { color: C.white, outline: C.void });
+  p.dashedHLine(x - 4, midY, w + 8, C.white, 2, 2);
+  p.text('50%', x + w + 5, midY - 6, { color: C.white, shadow: C.shadow });
 
-  // 얼굴 아이콘 + 현재 값
-  const face = value > compareTo + 5 ? faceIcon.anims.happy[0] : faceIcon.anims.neutral[0];
-  p.sprite(face, cx - Math.floor(face.width / 2), fillTop - face.height - 2);
-  // 차오르는 중에는 블록 수와 같은 값, 도착하면 정확한 목표값
-  const shown = Math.abs(value - target) < 0.5 ? Math.round(target) : blocks * BLOCK;
-  p.text(`${shown}%`, cx, fillTop - face.height - 17, { color: C.greenLight, outline: C.void, align: 'center' });
+  // 플레이어 머리 아이콘 + 기준보다 높으면 행복 파티클(초록 반짝이)
+  const head = heroHead.anims.icon[0];
+  const headX = Math.round(cx - head.width / 2);
+  const headY = top - head.height - 2;
+  p.sprite(head, headX, headY);
+  if (value > compareTo + 5) {
+    for (let k = 0; k < 4; k++) {
+      if (hash01(k, step >> 1, 11) < 0.45) continue;
+      const sx = headX - 6 + Math.floor(hash01(k, step >> 1, 12) * (head.width + 12));
+      const sy = headY - 4 + Math.floor(hash01(k, step >> 1, 13) * (head.height + 4));
+      p.rect(sx - 1, sy, 3, 1, C.emerald);
+      p.rect(sx, sy - 1, 1, 3, C.emerald);
+      p.pixel(sx, sy, C.emeraldLight);
+    }
+  }
+
+  // 쌓이는 중에는 슬랩 수와 같은 값, 도착하면 정확한 목표값
+  const shown = Math.abs(value - target) < 0.5 ? Math.round(target) : slabs * 10;
+  nameTag(p, `${shown}%`, cx, headY - 3, C.emeraldLight);
 }
 
 // ── 장면 ─────────────────────────────────────────────────
@@ -228,18 +193,16 @@ function drawScene(p: Painter, s: SceneProps<Props>) {
   const camX = Math.min(CAMERA_MAX, Math.floor(frame / 8));
 
   p.withOffset(-camX, 0, () => {
-    drawBricks(p);
-    drawLavaFalls(p, step);
-    drawSpirits(p, step);
-    drawFloor(p);
-    drawLava(p, step);
+    drawCave(p, step);
+    drawBlazes(p, step);
+    drawGround(p, step);
     drawHero(p, frame, lineStartFrame);
     drawEmbers(p, step);
   });
 
   const right = chainTween(history, frame, (h) => h.right, { duration: FILL_FRAMES, easing: easing.easeOutCubic, initial: 0 });
-  drawStoneBar(p, props.left);
-  drawBlockBar(p, right, props.right, props.left);
+  drawStonePillar(p, props.left);
+  drawEmeraldPillar(p, right, props.right, props.left, step);
 }
 
 const NetherBar: React.FC<SceneProps<Props>> = (s) => <PixelCanvas draw={(p) => drawScene(p, s)} />;

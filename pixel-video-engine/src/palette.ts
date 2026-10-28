@@ -20,24 +20,27 @@ function definePalette<K extends string>(
   return Object.freeze(colors as Record<K, PaletteColor>);
 }
 
-/** 장면: nether_bar (용암 동굴) */
+/**
+ * 장면: nether_bar (Minecraft 네더). 16색으로 블록·몹·UI를 모두 그린다.
+ * 한 색이 여러 용도를 겸한다 (예: lavaHot = 용암 하이라이트·발광석·블레이즈 머리).
+ */
 export const nether = definePalette('nether', {
-  void: '#0c0407',
-  mortar: '#1c080b',
-  brickDark: '#2c0e12',
-  brickMid: '#3f1518',
-  brickLight: '#5a2220',
-  lavaDark: '#8c1d0b',
-  lavaMid: '#d8480f',
-  lavaLight: '#f59f00',
-  lavaHot: '#ffe36e',
-  stoneDark: '#4b4a54',
-  stoneMid: '#6e6d78',
-  stoneLight: '#a3a2ad',
-  greenDark: '#237a36',
-  green: '#4fcb62',
-  greenLight: '#b4f2bc',
-  white: '#f6f4ee',
+  black: '#000000', // 외곽선, 눈, 이름표 배경
+  shadow: '#3f3f3f', // Minecraft 글자 그림자(흰색의 1/4), 조약돌 틈, 연기
+  stone: '#7a7a7a', // 조약돌
+  stoneLight: '#adadad', // 조약돌 밝은 면, 휩쓸기 파티클
+  white: '#ffffff', // 글자, 검 하이라이트, 눈 흰자
+  rackDark: '#3a1111', // 네더랙 어두운 점, 먼 벽
+  rack: '#6b2929', // 네더랙 기본, 검 손잡이, 발광석 틈
+  rackLight: '#8f423e', // 네더랙 밝은 점
+  lavaDark: '#b0360a',
+  lava: '#e2680f',
+  lavaLight: '#fcaa2e', // 용암 밝은 줄, 발광석, 블레이즈 막대
+  lavaHot: '#fff17a', // 용암 최고온, 발광석 하이라이트, 블레이즈 머리
+  emeraldDark: '#0b873a', // 에메랄드 블록 그늘, 주인공 머리 그늘
+  emerald: '#2fd468', // 에메랄드 블록, 주인공 피부
+  emeraldLight: '#a6f6c1', // 에메랄드 블록 하이라이트, 행복 파티클
+  diamond: '#4ce6d4', // 다이아몬드 검, 주인공 셔츠
 });
 
 /** 픽셀 캔버스 바깥 1280x720 레이어(자막, 워터마크)용 */
