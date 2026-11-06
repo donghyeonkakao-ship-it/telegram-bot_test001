@@ -1,0 +1,368 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"></head><body>
+<title>나선 r(t) 좌표 탐색기</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=JetBrains+Mono:wght@400;600&family=Newsreader:ital,opsz,wght@1,6..72,500&display=swap">
+<style>
+/* Layout: 그래프(왼쪽, 넓게) + 조작/좌표 패널(오른쪽). 좁은 화면에서는 위아래로 쌓음. */
+:root {
+  --bg: #f5f7fa;
+  --panel: #ffffff;
+  --fg: #18202b;
+  --muted: #5c6778;
+  --line: #d9dfe8;
+  --accent: #4b3fd6;
+  --ax-x: #d1433f;
+  --ax-y: #1f8a4c;
+  --ax-z: #2f6fd8;
+  --curve-faint: #c3c9d6;
+  --font-display: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10141b; --panel: #171c25; --fg: #e6eaf1; --muted: #98a2b3; --line: #2a3140;
+    --accent: #8f86ff; --ax-x: #ff7a73; --ax-y: #4fcf87; --ax-z: #6ea4ff; --curve-faint: #3a4255;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10141b; --panel: #171c25; --fg: #e6eaf1; --muted: #98a2b3; --line: #2a3140;
+  --accent: #8f86ff; --ax-x: #ff7a73; --ax-y: #4fcf87; --ax-z: #6ea4ff; --curve-faint: #3a4255;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+  padding-block: 24px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 20px; }
+header { display: grid; gap: 4px; }
+h1 { margin: 0; font-family: var(--font-display); font-style: italic; font-weight: 500; font-size: clamp(28px, 4vw, 40px); line-height: 1.15; text-wrap: balance; }
+h1 .comp-x { color: var(--ax-x); } h1 .comp-y { color: var(--ax-y); } h1 .comp-z { color: var(--ax-z); }
+header p { margin: 0; color: var(--muted); max-width: 65ch; }
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
+@media (max-width: 860px) { .main { grid-template-columns: minmax(0, 1fr); } }
+.stage { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; min-width: 0; }
+canvas { display: block; width: 100%; height: min(70vh, 600px); min-height: 380px; touch-action: none; cursor: grab; }
+canvas.dragging { cursor: grabbing; }
+.stage-hint { position: absolute; left: 12px; bottom: 10px; font-size: 12px; color: var(--muted); pointer-events: none; }
+.stage-tools { position: absolute; right: 10px; top: 10px; display: flex; gap: 6px; }
+.side { display: grid; gap: 16px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 12px; }
+.label { font-size: 12px; letter-spacing: 0.04em; color: var(--muted); font-weight: 600; }
+.readout { display: grid; gap: 8px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.row { display: grid; grid-template-columns: 22px 1fr auto; align-items: baseline; gap: 8px; }
+.row .k { font-weight: 600; }
+.row .f { color: var(--muted); font-size: 13px; }
+.row .v { font-size: 20px; font-weight: 600; text-align: right; }
+.row.x .k, .row.x .v { color: var(--ax-x); }
+.row.y .k, .row.y .v { color: var(--ax-y); }
+.row.z .k, .row.z .v { color: var(--ax-z); }
+.row.t .k, .row.t .v { color: var(--accent); }
+.vec { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 15px; padding: 10px 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); overflow-x: auto; white-space: nowrap; }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+.t-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.t-line input[type="number"] { width: 110px; font: inherit; font-family: var(--font-mono); padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
+button { font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); font-weight: 600; }
+.toggles { display: grid; gap: 6px; font-size: 14px; }
+.toggles label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.toggles input { accent-color: var(--accent); }
+.note { font-size: 13px; color: var(--muted); margin: 0; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>r(t) = (<span class="comp-x">cos t</span>, <span class="comp-y">sin t</span>, <span class="comp-z">t</span>)</h1>
+    <p>t를 바꾸면 점이 나선을 따라 움직이고, 오른쪽에 현재 좌표가 표시됩니다. 그래프는 드래그해서 돌려 볼 수 있습니다.</p>
+  </header>
+
+  <div class="main">
+    <div class="stage">
+      <canvas id="cv" aria-label="나선 곡선 3D 그래프"></canvas>
+      <div class="stage-tools"><button id="resetView" type="button">시점 초기화</button></div>
+      <div class="stage-hint">드래그: 회전 · 휠/핀치: 확대·축소 · z축은 화면에서 0.4배로 압축</div>
+    </div>
+
+    <div class="side">
+      <div class="card">
+        <div class="label">t 조절</div>
+        <input id="tRange" type="range" min="0" max="12.566" step="0.001" value="1.571" aria-label="t 값">
+        <div class="t-line">
+          <label for="tNum">t =</label>
+          <input id="tNum" type="number" min="0" max="12.566" step="0.01" value="1.57">
+          <button id="play" class="primary" type="button">▶ 재생</button>
+        </div>
+        <div class="presets" id="presets"></div>
+      </div>
+
+      <div class="card">
+        <div class="label">현재 좌표</div>
+        <div class="readout">
+          <div class="row t"><span class="k">t</span><span class="f" id="tPi"></span><span class="v" id="vT"></span></div>
+          <div class="row x"><span class="k">x</span><span class="f" id="fX"></span><span class="v" id="vX"></span></div>
+          <div class="row y"><span class="k">y</span><span class="f" id="fY"></span><span class="v" id="vY"></span></div>
+          <div class="row z"><span class="k">z</span><span class="f" id="fZ"></span><span class="v" id="vZ"></span></div>
+        </div>
+        <div class="vec" id="vec"></div>
+        <p class="note" id="turns"></p>
+      </div>
+
+      <div class="card">
+        <div class="label">표시 옵션</div>
+        <div class="toggles">
+          <label><input id="optVec" type="checkbox" checked> 위치벡터 (원점 → 점)</label>
+          <label><input id="optProj" type="checkbox" checked> 투영선 (바닥·z축으로)</label>
+          <label><input id="optFull" type="checkbox" checked> 전체 곡선 흐리게 표시</label>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const TMAX = 4 * Math.PI;
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const $ = id => document.getElementById(id);
+  const tRange = $('tRange'), tNum = $('tNum'), playBtn = $('play');
+
+  const DEFAULT_VIEW = { yaw: -0.65, pitch: 0.32, zoom: 1 };
+  const state = { t: Math.PI / 2, ...DEFAULT_VIEW, playing: false };
+
+  const r = t => [Math.cos(t), Math.sin(t), t];
+
+  // 프리셋 버튼
+  const presets = [[0, '0'], [Math.PI / 2, 'π/2'], [Math.PI, 'π'], [3 * Math.PI / 2, '3π/2'], [2 * Math.PI, '2π'], [3 * Math.PI, '3π'], [4 * Math.PI, '4π']];
+  presets.forEach(([v, lab]) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = 't = ' + lab;
+    b.addEventListener('click', () => { stop(); setT(v); });
+    $('presets').appendChild(b);
+  });
+
+  const fmt = v => { const s = (Math.abs(v) < 0.0005 ? 0 : v).toFixed(3); return (s[0] === '-' ? '' : '+') + s; };
+  const fmt2 = v => (Math.abs(v) < 0.005 ? 0 : v).toFixed(2);
+
+  function setT(t, fromInput) {
+    state.t = Math.min(TMAX, Math.max(0, t));
+    tRange.value = state.t.toFixed(3);
+    if (fromInput !== 'num') tNum.value = state.t.toFixed(2);
+    updateReadout();
+    draw();
+  }
+
+  function updateReadout() {
+    const t = state.t, [x, y, z] = r(t);
+    $('vT').textContent = t.toFixed(3);
+    $('tPi').textContent = '≈ ' + (t / Math.PI).toFixed(3) + 'π';
+    $('fX').textContent = 'cos(' + t.toFixed(2) + ')';
+    $('fY').textContent = 'sin(' + t.toFixed(2) + ')';
+    $('fZ').textContent = '= t';
+    $('vX').textContent = fmt(x);
+    $('vY').textContent = fmt(y);
+    $('vZ').textContent = fmt(z);
+    $('vec').textContent = 'r(' + t.toFixed(2) + ') = (' + fmt2(x) + ', ' + fmt2(y) + ', ' + fmt2(z) + ')';
+    const turns = t / (2 * Math.PI);
+    const deg = ((t * 180 / Math.PI) % 360 + 360) % 360;
+    $('turns').textContent = '원 위의 각도 ' + deg.toFixed(1) + '° · ' + turns.toFixed(2) + '바퀴 회전 · 높이 z = ' + t.toFixed(2);
+  }
+
+  // ---- 3D 투영 (정사영). z축이 위쪽 ----
+  let W = 0, H = 0, DPR = 1;
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const rect = cv.getBoundingClientRect();
+    W = rect.width; H = rect.height;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    draw();
+  }
+  const ZC = TMAX / 2; // 화면 중심 높이
+  const ZS = 0.4;      // 화면에서 z축만 0.4배로 압축 (좌표 값은 그대로)
+  function project([x, y, z]) {
+    const { yaw, pitch, zoom } = state;
+    const ca = Math.cos(yaw), sa = Math.sin(yaw);
+    const x1 = x * ca - y * sa;
+    const y1 = x * sa + y * ca;
+    const zz = (z - ZC) * ZS;
+    const ce = Math.cos(pitch), se = Math.sin(pitch);
+    const sx = x1;
+    const sy = zz * ce - y1 * se;
+    const depth = y1 * ce + zz * se;
+    const scale = Math.min(W / 4.4, H / (TMAX * ZS * 1.3)) * zoom;
+    return [W / 2 + sx * scale, H / 2 - sy * scale, depth];
+  }
+
+  function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+  function line(a, b, color, width = 1, dash = null) {
+    const p = project(a), q = project(b);
+    ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]);
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash || []); ctx.stroke(); ctx.setLineDash([]);
+  }
+  function arrow(a, b, color, width = 2) {
+    line(a, b, color, width);
+    const p = project(a), q = project(b);
+    const ang = Math.atan2(q[1] - p[1], q[0] - p[0]);
+    const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    if (len < 4) return;
+    const h = Math.min(10, len * 0.4);
+    ctx.beginPath();
+    ctx.moveTo(q[0], q[1]);
+    ctx.lineTo(q[0] - h * Math.cos(ang - 0.4), q[1] - h * Math.sin(ang - 0.4));
+    ctx.lineTo(q[0] - h * Math.cos(ang + 0.4), q[1] - h * Math.sin(ang + 0.4));
+    ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+  }
+  function label(pt, text, color, dx = 6, dy = -6, font) {
+    const p = project(pt);
+    ctx.fillStyle = color; ctx.font = font || '600 13px ' + css('--font-mono');
+    ctx.fillText(text, p[0] + dx, p[1] + dy);
+  }
+  function curve(t0, t1, color, width) {
+    const n = Math.max(2, Math.ceil((t1 - t0) / 0.02));
+    ctx.beginPath();
+    for (let i = 0; i <= n; i++) {
+      const p = project(r(t0 + (t1 - t0) * i / n));
+      i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]);
+    }
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
+  }
+
+  function draw() {
+    if (!W) return;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const C = {
+      fg: css('--fg'), muted: css('--muted'), line: css('--line'), accent: css('--accent'),
+      x: css('--ax-x'), y: css('--ax-y'), z: css('--ax-z'), faint: css('--curve-faint')
+    };
+
+    // 바닥 단위원 (z=0) 과 격자
+    ctx.beginPath();
+    for (let i = 0; i <= 120; i++) {
+      const a = i / 120 * 2 * Math.PI; const p = project([Math.cos(a), Math.sin(a), 0]);
+      i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]);
+    }
+    ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.setLineDash([]);
+
+    // z 눈금 (π 단위)
+    for (let k = 1; k <= 4; k++) {
+      const z = k * Math.PI;
+      line([-0.08, 0, z], [0.08, 0, z], C.z, 1.5);
+      label([0, 0, z], k === 1 ? 'π' : k + 'π', C.muted, -26, 4, '12px ' + css('--font-mono'));
+    }
+
+    // 축
+    arrow([0, 0, 0], [1.7, 0, 0], C.x, 1.6); label([1.7, 0, 0], 'x', C.x);
+    arrow([0, 0, 0], [0, 1.7, 0], C.y, 1.6); label([0, 1.7, 0], 'y', C.y);
+    arrow([0, 0, 0], [0, 0, TMAX + 0.9], C.z, 1.6); label([0, 0, TMAX + 0.9], 'z', C.z);
+    label([0, 0, 0], 'O', C.muted, -14, 14, '12px ' + css('--font-mono'));
+
+    // 곡선
+    if ($('optFull').checked) curve(0, TMAX, C.faint, 2);
+    if (state.t > 0) curve(0, state.t, C.accent, 3);
+
+    const P = r(state.t);
+    const [x, y, z] = P;
+
+    // 투영선
+    if ($('optProj').checked) {
+      line(P, [x, y, 0], C.muted, 1, [3, 4]);          // 바닥으로
+      line([0, 0, 0], [x, y, 0], C.muted, 1, [3, 4]);  // 원점 → 바닥 그림자
+      line([x, 0, 0], [x, y, 0], C.x, 1, [2, 3]);
+      line([0, y, 0], [x, y, 0], C.y, 1, [2, 3]);
+      line(P, [0, 0, z], C.z, 1, [3, 4]);              // z축으로
+      const s = project([x, y, 0]);
+      ctx.beginPath(); ctx.arc(s[0], s[1], 3.5, 0, Math.PI * 2); ctx.fillStyle = C.muted; ctx.fill();
+      const zp = project([0, 0, z]);
+      ctx.beginPath(); ctx.arc(zp[0], zp[1], 3.5, 0, Math.PI * 2); ctx.fillStyle = C.z; ctx.fill();
+    }
+
+    // 위치벡터
+    if ($('optVec').checked) arrow([0, 0, 0], P, C.fg, 1.6);
+
+    // 점
+    const p = project(P);
+    ctx.beginPath(); ctx.arc(p[0], p[1], 7, 0, Math.PI * 2);
+    ctx.fillStyle = C.accent; ctx.fill();
+    ctx.lineWidth = 2.5; ctx.strokeStyle = css('--panel'); ctx.stroke();
+
+    // 점 옆 좌표 라벨
+    const txt = '(' + fmt2(x) + ', ' + fmt2(y) + ', ' + fmt2(z) + ')';
+    ctx.font = '600 13px ' + css('--font-mono');
+    const tw = ctx.measureText(txt).width;
+    let lx = p[0] + 12, ly = p[1] - 12;
+    if (lx + tw + 8 > W) lx = p[0] - tw - 20;
+    if (ly - 16 < 0) ly = p[1] + 24;
+    ctx.fillStyle = css('--panel'); ctx.globalAlpha = 0.88;
+    ctx.fillRect(lx - 4, ly - 15, tw + 8, 21); ctx.globalAlpha = 1;
+    ctx.fillStyle = C.fg; ctx.fillText(txt, lx, ly);
+  }
+
+  // ---- 입력 ----
+  tRange.addEventListener('input', () => { stop(); setT(parseFloat(tRange.value)); });
+  tNum.addEventListener('input', () => { const v = parseFloat(tNum.value); if (!isNaN(v)) { stop(); setT(v, 'num'); } });
+  tNum.addEventListener('change', () => setT(state.t));
+  ['optVec', 'optProj', 'optFull'].forEach(id => $(id).addEventListener('change', draw));
+  $('resetView').addEventListener('click', () => { Object.assign(state, DEFAULT_VIEW); draw(); });
+
+  // 드래그 회전 + 핀치 확대
+  const pointers = new Map(); let pinch0 = null;
+  cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); pointers.set(e.pointerId, [e.clientX, e.clientY]); cv.classList.add('dragging'); });
+  cv.addEventListener('pointermove', e => {
+    if (!pointers.has(e.pointerId)) return;
+    const prev = pointers.get(e.pointerId);
+    pointers.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+      if (pinch0) state.zoom = Math.min(3, Math.max(0.4, state.zoom * d / pinch0));
+      pinch0 = d;
+    } else {
+      state.yaw -= (e.clientX - prev[0]) * 0.008;
+      state.pitch = Math.min(1.5, Math.max(-1.5, state.pitch + (e.clientY - prev[1]) * 0.008));
+    }
+    draw();
+  });
+  const up = e => { pointers.delete(e.pointerId); pinch0 = null; if (!pointers.size) cv.classList.remove('dragging'); };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  cv.addEventListener('wheel', e => { e.preventDefault(); state.zoom = Math.min(3, Math.max(0.4, state.zoom * Math.exp(-e.deltaY * 0.001))); draw(); }, { passive: false });
+
+  // ---- 재생 ----
+  let last = 0, raf = 0;
+  function tick(ts) {
+    if (!state.playing) return;
+    const dt = last ? (ts - last) / 1000 : 0; last = ts;
+    let t = state.t + dt * 1.2;
+    if (t > TMAX) t = 0;
+    setT(t);
+    raf = requestAnimationFrame(tick);
+  }
+  function stop() { state.playing = false; cancelAnimationFrame(raf); playBtn.textContent = '▶ 재생'; }
+  playBtn.addEventListener('click', () => {
+    if (state.playing) return stop();
+    if (state.t >= TMAX) setT(0);
+    state.playing = true; last = 0; playBtn.textContent = '❚❚ 정지';
+    raf = requestAnimationFrame(tick);
+  });
+
+  // 테마 변경 시 다시 그리기
+  try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw); } catch (e) {}
+  new MutationObserver(draw).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  new ResizeObserver(resize).observe(cv);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
+
+  setT(state.t);
+  resize();
+})();
+</script>
+</body></html>
