@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>리만합 입체 탐구</title>
+<style>
+  :root{
+    --bg:#f5f6fa; --panel:#ffffff; --ink:#1d2333; --muted:#667085; --line:#e3e6ee;
+    --accent:#4f6bed; --accent-ink:#ffffff; --good:#1a9b5b; --warn:#d1495b; --chip:#eef1fb;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#11141c; --panel:#1a1f2b; --ink:#e7eaf2; --muted:#98a2b3; --line:#2b3242;
+      --accent:#7b93ff; --accent-ink:#0e1220; --good:#4cd38f; --warn:#ff7b8a; --chip:#232a3a;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;line-height:1.5}
+  header{max-width:1200px;margin:0 auto;padding:24px 16px 8px}
+  h1{margin:0 0 4px;font-size:1.6rem}
+  header p{margin:0;color:var(--muted)}
+  main{max-width:1200px;margin:0 auto;padding:12px 16px 40px;display:grid;gap:16px;
+    grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)}
+  @media (max-width:860px){main{grid-template-columns:minmax(0,1fr)}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .card h2{margin:0 0 10px;font-size:1.05rem}
+  .seg{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+  .seg button{border:1px solid var(--line);background:var(--chip);color:var(--ink);
+    padding:7px 14px;border-radius:999px;cursor:pointer;font:inherit;font-size:.95rem}
+  .seg button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .row{display:flex;align-items:center;gap:10px;margin:8px 0;flex-wrap:wrap}
+  .row label{min-width:92px;color:var(--muted);font-size:.92rem}
+  .row input[type=range]{flex:1;min-width:120px;accent-color:var(--accent)}
+  .row output{min-width:40px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+  .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .btn{border:none;background:var(--accent);color:var(--accent-ink);padding:9px 16px;
+    border-radius:10px;font:inherit;font-weight:600;cursor:pointer}
+  .btn.ghost{background:var(--chip);color:var(--ink);border:1px solid var(--line)}
+  canvas{width:100%;display:block;border-radius:10px;background:var(--bg);touch-action:none}
+  #view{aspect-ratio:4/3.2;cursor:grab}
+  #chart{aspect-ratio:16/10}
+  .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}
+  .stat{background:var(--chip);border-radius:10px;padding:8px 10px}
+  .stat small{display:block;color:var(--muted);font-size:.78rem}
+  .stat b{font-size:1.1rem;font-variant-numeric:tabular-nums}
+  .formula{background:var(--chip);border-radius:10px;padding:10px 12px;font-family:"Cambria Math","Times New Roman",serif;
+    font-size:1.02rem;overflow-x:auto;white-space:nowrap}
+  .note{color:var(--muted);font-size:.9rem;margin:8px 0 0}
+  .hint{color:var(--muted);font-size:.82rem;margin-top:6px}
+  .bar{height:8px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:6px}
+  .bar i{display:block;height:100%;background:var(--good);width:0;transition:width .2s}
+</style>
+</head>
+<body>
+<header>
+  <h1>리만합으로 구하는 뿔 · 기둥(통) · 구의 부피와 겉넓이</h1>
+  <p>입체를 얇게 <b>쪼개서</b> 조각들의 합(리만합)을 구하고, 조각 수 n을 늘리면 정확한 공식에 수렴하는 것을 확인해 보세요.</p>
+</header>
+
+<main>
+  <section class="card">
+    <div class="seg" id="shapeSeg">
+      <button data-v="cone" class="on">원뿔</button>
+      <button data-v="cyl">원기둥(통)</button>
+      <button data-v="sphere">구</button>
+    </div>
+    <div class="seg" id="modeSeg">
+      <button data-v="volume" class="on">부피</button>
+      <button data-v="surface">겉넓이</button>
+    </div>
+    <canvas id="view"></canvas>
+    <div class="hint">↕ 화면을 위아래로 드래그하면 보는 각도가 바뀝니다.</div>
+    <div class="btns">
+      <button class="btn" id="splitBtn">✂ 쪼개기</button>
+      <button class="btn ghost" id="playBtn">▶ n 늘려보기</button>
+    </div>
+  </section>
+
+  <section style="display:grid;gap:16px;align-content:start">
+    <div class="card">
+      <h2>설정</h2>
+      <div class="row"><label>조각 수 n</label><input id="n" type="range" min="1" max="100" value="8"><output id="nOut">8</output></div>
+      <div class="row" id="rRow"><label>반지름 r</label><input id="r" type="range" min="1" max="5" step="0.5" value="3"><output id="rOut">3</output></div>
+      <div class="row" id="hRow"><label>높이 h</label><input id="h" type="range" min="1" max="8" step="0.5" value="6"><output id="hOut">6</output></div>
+      <div class="row"><label>표본점</label>
+        <div class="seg" id="ruleSeg" style="margin:0">
+          <button data-v="left">왼쪽 끝</button>
+          <button data-v="mid" class="on">가운데</button>
+          <button data-v="right">오른쪽 끝</button>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat"><small>리만합 (근삿값)</small><b id="approx">-</b></div>
+        <div class="stat"><small>정확한 값</small><b id="exact">-</b></div>
+        <div class="stat"><small>오차</small><b id="err">-</b></div>
+      </div>
+      <div class="bar"><i id="accBar"></i></div>
+    </div>
+
+    <div class="card">
+      <h2 id="chartTitle">단면적 그래프</h2>
+      <canvas id="chart"></canvas>
+      <p class="note" id="chartNote"></p>
+    </div>
+
+    <div class="card">
+      <h2>식으로 보기</h2>
+      <div class="formula" id="fSum"></div>
+      <div class="formula" id="fInt" style="margin-top:8px"></div>
+      <p class="note" id="explain"></p>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const PI = Math.PI;
+  const S = { shape:'cone', mode:'volume', rule:'mid', n:8, r:3, h:6,
+              p:0, target:0, elev:24*PI/180, playing:false, flash:0 };
+
+  // ---------- 입체 정의 ----------
+  // 부피: 높이 y로 자르기 (가로 단면 = 원)  /  겉넓이: 옆면을 따라 잰 길이 s로 띠 자르기
+  function geom(){
+    const {shape, r, h} = S;
+    if (shape === 'cone'){
+      const l = Math.hypot(r, h);
+      return {
+        vol:{ a:0, b:h, rad:y => r*(1 - y/h) },
+        surf:{ L:l, rad:s => r*(1 - s/l), Y:s => h*s/l },
+        bases:[{y:0, rad:r}],
+        exactV: PI*r*r*h/3, exactS: PI*r*r + PI*r*l, l
+      };
+    }
+    if (shape === 'cyl'){
+      return {
+        vol:{ a:0, b:h, rad:() => r },
+        surf:{ L:h, rad:() => r, Y:s => s },
+        bases:[{y:0, rad:r},{y:h, rad:r}],
+        exactV: PI*r*r*h, exactS: 2*PI*r*r + 2*PI*r*h
+      };
+    }
+    const R = r;
+    return {
+      vol:{ a:-R, b:R, rad:y => Math.sqrt(Math.max(0, R*R - y*y)) },
+      surf:{ L:PI*R, rad:s => R*Math.sin(s/R), Y:s => -R*Math.cos(s/R) },
+      bases:[],
+      exactV: 4/3*PI*R**3, exactS: 4*PI*R*R
+    };
+  }
+
+  function sampleT(i){ return S.rule==='left' ? i : S.rule==='right' ? i+1 : i+0.5; }
+
+  // 조각 목록 계산
+  function pieces(){
+    const g = geom(), n = S.n, out = [];
+    if (S.mode === 'volume'){
+      const {a,b,rad} = g.vol, d = (b-a)/n;
+      for (let i=0;i<n;i++){
+        const yS = a + sampleT(i)*d, R = rad(yS);
+        out.push({ y0:a+i*d, y1:a+(i+1)*d, rad:R, x0:a+i*d, x1:a+(i+1)*d, f:PI*R*R, term:PI*R*R*d });
+      }
+    } else {
+      const {L,rad,Y} = g.surf, d = L/n;
+      for (let i=0;i<n;i++){
+        const sS = sampleT(i)*d, R = rad(sS);
+        out.push({ y0:Y(i*d), y1:Y((i+1)*d), rad:R, x0:i*d, x1:(i+1)*d, f:2*PI*R, term:2*PI*R*d });
+      }
+    }
+    return {g, list:out};
+  }
+
+  // ---------- 3D 캔버스 ----------
+  const view = document.getElementById('view'), vx = view.getContext('2d');
+  const chart = document.getElementById('chart'), cx2 = chart.getContext('2d');
+  function fit(c){
+    const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+    if (c.width !== Math.round(w*dpr) || c.height !== Math.round(h*dpr)){
+      c.width = Math.round(w*dpr); c.height = Math.round(h*dpr);
+    }
+    c.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    return {w,h};
+  }
+  const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const hue = (i,n) => 205 + 130*(n<=1?0:i/(n-1));
+  const ease = t => t<.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2;
+  const clamp = (x,a,b) => Math.max(a, Math.min(b, x));
+
+  function drawView(){
+    const {w,h} = fit(view), ctx = vx;
+    ctx.clearRect(0,0,w,h);
+    const {g, list} = pieces(), n = list.length;
+    const sinE = Math.sin(S.elev), cosE = Math.cos(S.elev);
+
+    // 세로 범위 & 벌어짐
+    const yMin = S.shape==='sphere' ? -S.r : 0, yMax = S.shape==='sphere' ? S.r : S.h;
+    const H = yMax - yMin, spread = Math.max(0.9*H, 2), gap = spread / Math.max(n,1);
+    const baseGap = 0.12*spread + 0.6;
+    const maxR = S.r;
+    const totalH = H + spread + 2*baseGap;
+    const scale = Math.min((w*0.8)/(2*maxR), (h*0.86)/(totalH*cosE + 2*maxR*sinE));
+    const cxs = w/2, midY = (yMin+yMax)/2;
+    const Ys = y => h/2 - (y - midY)*scale*cosE;
+
+    // 조각별 쪼개짐 진행도 (위에서부터 차례로)
+    const off = list.map((_,i) => {
+      const delay = n<=1 ? 0 : (1 - i/(n-1))*0.45;
+      const e = ease(clamp((S.p - delay)/0.55, 0, 1));
+      return { e, dy:(i - (n-1)/2)*gap*e };
+    });
+
+    const shade = (x0, x1, y, hh, l) => {
+      const gr = ctx.createLinearGradient(x0, y, x1, y);
+      gr.addColorStop(0, `hsl(${hh},65%,${l-18}%)`);
+      gr.addColorStop(.35, `hsl(${hh},75%,${l+8}%)`);
+      gr.addColorStop(1, `hsl(${hh},60%,${l-22}%)`);
+      return gr;
+    };
+    const edge = 'rgba(0,0,0,.28)';
+
+    // 밑면(겉넓이 모드)
+    const bases = S.mode==='surface' ? g.bases.map((b,k) => {
+      const e = ease(clamp(S.p/0.8,0,1));
+      const dir = (g.bases.length===2 && k===1) ? 1 : -1;
+      const ext = dir>0 ? (n-1)/2*gap*ease(clamp(S.p,0,1)) : -(n-1)/2*gap*ease(clamp(S.p,0,1));
+      return {...b, y:b.y + ext + dir*baseGap*e};
+    }) : [];
+
+    const drawDiskFlat = (y, R, fill) => {
+      const X = R*scale, ry = X*sinE, sy = Ys(y);
+      ctx.beginPath(); ctx.ellipse(cxs, sy, X, Math.max(ry,.5), 0, 0, 2*PI);
+      ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = edge; ctx.lineWidth = 1; ctx.stroke();
+    };
+
+    // 아래 밑면은 먼저
+    bases.filter(b => b.y < midY).forEach(b => drawDiskFlat(b.y, b.rad, 'hsl(40,85%,60%)'));
+
+    if (S.mode === 'volume'){
+      list.forEach((pc,i) => {
+        const y0 = pc.y0 + off[i].dy, y1 = pc.y1 + off[i].dy;
+        const X = pc.rad*scale, ry = X*sinE, sb = Ys(y0), st = Ys(y1), hh = hue(i,n);
+        if (X < .3){ return; }
+        ctx.beginPath();
+        ctx.moveTo(cxs-X, st); ctx.lineTo(cxs-X, sb);
+        ctx.ellipse(cxs, sb, X, Math.max(ry,.01), 0, PI, 0, true);
+        ctx.lineTo(cxs+X, st);
+        ctx.ellipse(cxs, st, X, Math.max(ry,.01), 0, 0, PI, false);
+        ctx.closePath();
+        ctx.fillStyle = shade(cxs-X, cxs+X, sb, hh, 52); ctx.fill();
+        ctx.strokeStyle = edge; ctx.lineWidth = n>50 ? .5 : 1; ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(cxs, st, X, Math.max(ry,.01), 0, 0, 2*PI);
+        ctx.fillStyle = `hsl(${hh},70%,70%)`; ctx.fill(); ctx.stroke();
+      });
+    } else {
+      const geomBand = (pc,i) => {
+        const y0 = pc.y0 + off[i].dy, y1 = pc.y1 + off[i].dy;
+        const X = pc.rad*scale; return {X, ry:X*sinE, sb:Ys(y0), st:Ys(y1), hh:hue(i,n)};
+      };
+      // 안쪽(뒤) 먼저
+      list.forEach((pc,i) => {
+        const {X,ry,sb,st,hh} = geomBand(pc,i); if (X < .3) return;
+        ctx.beginPath();
+        ctx.moveTo(cxs-X, st);
+        ctx.ellipse(cxs, st, X, Math.max(ry,.01), 0, PI, 2*PI, false);
+        ctx.lineTo(cxs+X, sb);
+        ctx.ellipse(cxs, sb, X, Math.max(ry,.01), 0, 0, -PI, true);
+        ctx.closePath();
+        ctx.fillStyle = `hsl(${hh},45%,30%)`; ctx.fill();
+        ctx.strokeStyle = edge; ctx.lineWidth = .6; ctx.stroke();
+      });
+      // 바깥(앞)
+      list.forEach((pc,i) => {
+        const {X,ry,sb,st,hh} = geomBand(pc,i); if (X < .3) return;
+        ctx.beginPath();
+        ctx.moveTo(cxs-X, st); ctx.lineTo(cxs-X, sb);
+        ctx.ellipse(cxs, sb, X, Math.max(ry,.01), 0, PI, 0, true);
+        ctx.lineTo(cxs+X, st);
+        ctx.ellipse(cxs, st, X, Math.max(ry,.01), 0, 0, PI, false);
+        ctx.closePath();
+        ctx.fillStyle = shade(cxs-X, cxs+X, sb, hh, 55); ctx.fill();
+        ctx.strokeStyle = edge; ctx.lineWidth = n>50 ? .5 : 1; ctx.stroke();
+      });
+    }
+    bases.filter(b => b.y >= midY).forEach(b => drawDiskFlat(b.y, b.rad, 'hsl(40,85%,60%)'));
+
+    // 칼날(자르는 선) 반짝임
+    if (S.p > 0 && S.p < 1 && n <= 60){
+      list.forEach((pc,i) => {
+        if (i===0) return;
+        const a = Math.sin(PI*off[i].e);
+        if (a < .05) return;
+        const sy = Ys(pc.y0 + (off[i].dy + off[i-1].dy)/2);
+        ctx.strokeStyle = `rgba(255,80,90,${a*.9})`; ctx.lineWidth = 2;
+        ctx.setLineDash([6,4]);
+        ctx.beginPath(); ctx.moveTo(cxs - maxR*scale - 18, sy); ctx.lineTo(cxs + maxR*scale + 18, sy); ctx.stroke();
+        ctx.setLineDash([]);
+      });
+    }
+
+    // 원래 윤곽선 (쪼갠 정도에 따라 흐려짐)
+    const outlineA = 0.55*(1 - S.p);
+    if (outlineA > .02){
+      ctx.strokeStyle = `rgba(120,120,120,${outlineA})`; ctx.lineWidth = 1.5; ctx.setLineDash([4,4]);
+      ctx.beginPath();
+      const steps = 80;
+      for (const sgn of [-1,1]){
+        for (let k=0;k<=steps;k++){
+          const y = yMin + H*k/steps, R = g.vol.rad(y);
+          const X = cxs + sgn*R*scale, Y = Ys(y);
+          k ? ctx.lineTo(X,Y) : ctx.moveTo(X,Y);
+        }
+      }
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+
+    ctx.fillStyle = css('--muted'); ctx.font = '13px sans-serif';
+    ctx.fillText(`n = ${n}`, 12, 20);
+  }
+
+  // ---------- 리만합 그래프 ----------
+  function drawChart(){
+    const {w,h} = fit(chart), ctx = cx2;
+    ctx.clearRect(0,0,w,h);
+    const {g, list} = pieces(), n = list.length;
+    const isV = S.mode === 'volume';
+    const a = isV ? g.vol.a : 0, b = isV ? g.vol.b : g.surf.L;
+    const f = isV ? (y => PI*g.vol.rad(y)**2) : (s => 2*PI*g.surf.rad(s));
+    let fMax = 0;
+    for (let k=0;k<=200;k++) fMax = Math.max(fMax, f(a+(b-a)*k/200));
+    list.forEach(p => fMax = Math.max(fMax, p.f));
+    fMax = fMax*1.1 || 1;
+    const padL = 44, padR = 12, padT = 12, padB = 28;
+    const X = x => padL + (x-a)/(b-a)*(w-padL-padR);
+    const Y = v => h - padB - v/fMax*(h-padT-padB);
+
+    ctx.strokeStyle = css('--line'); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, h-padB); ctx.lineTo(w-padR, h-padB); ctx.stroke();
+    ctx.fillStyle = css('--muted'); ctx.font = '11px sans-serif';
+    ctx.fillText(isV ? 'A(y)' : 'L(s)', 6, padT+10);
+    ctx.fillText(isV ? 'y' : 's', w-padR-8, h-8);
+    ctx.fillText(a.toFixed(1), padL-6, h-10);
+    ctx.fillText(b.toFixed(1), X(b)-18, h-10);
+
+    // 막대 (등장 애니메이션)
+    list.forEach((p,i) => {
+      const grow = 0.35 + 0.65*ease(clamp(S.p*1.4 - (i/n)*0.4, 0, 1));
+      const x0 = X(p.x0), x1 = X(p.x1), y = Y(p.f*(S.p>0?grow:1));
+      ctx.fillStyle = `hsla(${hue(i,n)},70%,58%,.75)`;
+      ctx.fillRect(x0, y, Math.max(x1-x0,.5), h-padB-y);
+      if (n <= 40){ ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.strokeRect(x0, y, x1-x0, h-padB-y); }
+    });
+    // 실제 함수
+    ctx.strokeStyle = css('--warn'); ctx.lineWidth = 2; ctx.beginPath();
+    for (let k=0;k<=200;k++){ const x = a+(b-a)*k/200; k ? ctx.lineTo(X(x),Y(f(x))) : ctx.moveTo(X(x),Y(f(x))); }
+    ctx.stroke();
+  }
+
+  // ---------- 텍스트 ----------
+  const fmt = v => v.toFixed(3);
+  function updateText(){
+    const {g, list} = pieces();
+    const isV = S.mode==='volume';
+    let approx = list.reduce((s,p)=>s+p.term, 0);
+    const baseArea = isV ? 0 : g.bases.reduce((s,b)=>s+PI*b.rad*b.rad, 0);
+    approx += baseArea;
+    const exact = isV ? g.exactV : g.exactS;
+    const err = Math.abs(approx-exact)/exact*100;
+    document.getElementById('approx').textContent = fmt(approx);
+    document.getElementById('exact').textContent = fmt(exact);
+    document.getElementById('err').textContent = err.toFixed(err<0.01?4:2) + '%';
+    document.getElementById('err').style.color = err < 1 ? css('--good') : css('--warn');
+    document.getElementById('accBar').style.width = clamp(100-err*5,0,100) + '%';
+
+    const r = S.r, h = S.h, n = S.n;
+    const sh = S.shape, T = document.getElementById.bind(document);
+    T('hRow').style.display = sh==='sphere' ? 'none' : '';
+    T('rRow').querySelector('label').textContent = sh==='sphere' ? '반지름 R' : '반지름 r';
+
+    let fs='', fi='', ex='', ct='', cn='';
+    if (isV){
+      ct = '단면적 A(y) = π·r(y)² 의 리만합';
+      cn = '빨간 곡선 아래 넓이 = 정확한 부피. 막대 넓이의 합 = 원판(디스크) n개의 부피 합.';
+      fs = `V ≈ Σ<sub>i=1</sub><sup>${n}</sup> π·r(y<sub>i</sub>*)²·Δy,&nbsp; Δy = ${((g.vol.b-g.vol.a)/n).toFixed(3)}`;
+      if (sh==='cone'){
+        fi = `V = ∫<sub>0</sub><sup>h</sup> π·(r(1−y/h))² dy = ⅓πr²h = ${fmt(g.exactV)}`;
+        ex = '원뿔을 높이 방향으로 n등분하면 얇은 원기둥(원판) n개가 됩니다. 높이 y에서 반지름은 r(1−y/h)로 일정하게 줄어듭니다. 왼쪽 끝 표본은 과대, 오른쪽 끝은 과소 추정이 됩니다.';
+      } else if (sh==='cyl'){
+        fi = `V = ∫<sub>0</sub><sup>h</sup> πr² dy = πr²h = ${fmt(g.exactV)}`;
+        ex = '원기둥은 어느 높이에서 잘라도 단면이 같은 원이므로, n에 상관없이 리만합이 정확한 값과 같습니다.';
+      } else {
+        fi = `V = ∫<sub>−R</sub><sup>R</sup> π(R²−y²) dy = 4⁄3·πR³ = ${fmt(g.exactV)}`;
+        ex = '구를 높이 y에서 자르면 반지름 √(R²−y²)인 원이 나옵니다(피타고라스 정리). 얇은 원판들을 모두 더하면 구의 부피에 가까워집니다.';
+      }
+    } else {
+      ct = '띠의 둘레 L(s) = 2π·r(s) 의 리만합';
+      cn = 's는 옆면(모선·호)을 따라 잰 길이. 막대 하나 = 띠 하나를 펼친 직사각형(둘레 × 폭 Δs).';
+      fs = `S ≈ Σ<sub>i=1</sub><sup>${n}</sup> 2π·r(s<sub>i</sub>*)·Δs ${baseArea? '+ 밑면' : ''},&nbsp; Δs = ${((sh==='cone'?g.l:sh==='cyl'?h:PI*r)/n).toFixed(3)}`;
+      if (sh==='cone'){
+        fi = `S = πr² + ∫<sub>0</sub><sup>l</sup> 2π·r(1−s/l) ds = πr² + πrl = ${fmt(g.exactS)}  (l=${g.l.toFixed(3)})`;
+        ex = '원뿔의 옆면을 모선 방향으로 n등분해 얇은 띠로 자릅니다. 각 띠를 펼치면 거의 직사각형(둘레 2πr × 폭 Δs)이고, 노란색 밑면 πr²를 더합니다.';
+      } else if (sh==='cyl'){
+        fi = `S = 2πr² + ∫<sub>0</sub><sup>h</sup> 2πr ds = 2πr² + 2πrh = ${fmt(g.exactS)}`;
+        ex = '원기둥의 옆면 띠는 모두 둘레가 2πr로 같아서 펼치면 직사각형이 됩니다. 위·아래 노란 밑면 두 개를 더합니다.';
+      } else {
+        fi = `S = ∫<sub>0</sub><sup>π</sup> 2π·R sinθ · R dθ = 4πR² = ${fmt(g.exactS)}`;
+        ex = '구의 겉면을 위도선처럼 n개의 띠로 자릅니다. 각도 θ인 띠의 반지름은 R sinθ, 폭은 호의 길이 RΔθ입니다. 다 더하면 4πR²에 수렴합니다.';
+      }
+    }
+    T('fSum').innerHTML = fs; T('fInt').innerHTML = fi; T('explain').textContent = ex;
+    T('chartTitle').textContent = ct; T('chartNote').textContent = cn;
+  }
+
+  // ---------- 루프 ----------
+  let last = performance.now();
+  function frame(now){
+    const dt = Math.min(0.05, (now-last)/1000); last = now;
+    if (S.p !== S.target){
+      const sp = 0.7; // 초당 진행
+      S.p = S.target > S.p ? Math.min(S.target, S.p + dt*sp) : Math.max(S.target, S.p - dt*sp);
+    }
+    drawView(); drawChart();
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- UI ----------
+  function seg(id, key){
+    document.getElementById(id).addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      S[key] = b.dataset.v;
+      [...e.currentTarget.children].forEach(c => c.classList.toggle('on', c===b));
+      updateText();
+    });
+  }
+  seg('shapeSeg','shape'); seg('modeSeg','mode'); seg('ruleSeg','rule');
+
+  for (const k of ['n','r','h']){
+    const el = document.getElementById(k), out = document.getElementById(k+'Out');
+    el.addEventListener('input', () => { S[k] = +el.value; out.textContent = el.value; updateText(); });
+  }
+  const splitBtn = document.getElementById('splitBtn');
+  splitBtn.addEventListener('click', () => {
+    S.target = S.target ? 0 : 1;
+    splitBtn.textContent = S.target ? '🧩 합치기' : '✂ 쪼개기';
+  });
+
+  const playBtn = document.getElementById('playBtn');
+  let playTimer = null;
+  playBtn.addEventListener('click', () => {
+    if (playTimer){ clearInterval(playTimer); playTimer = null; playBtn.textContent = '▶ n 늘려보기'; return; }
+    S.n = 1; S.target = 1; splitBtn.textContent = '🧩 합치기';
+    playBtn.textContent = '⏸ 멈추기';
+    const nEl = document.getElementById('n'), nOut = document.getElementById('nOut');
+    playTimer = setInterval(() => {
+      S.n = S.n < 12 ? S.n + 1 : Math.min(100, Math.round(S.n*1.15));
+      nEl.value = S.n; nOut.textContent = S.n; updateText();
+      if (S.n >= 100){ clearInterval(playTimer); playTimer = null; playBtn.textContent = '▶ n 늘려보기'; }
+    }, 380);
+  });
+
+  // 드래그로 시점 변경
+  let drag = null;
+  view.addEventListener('pointerdown', e => { drag = e.clientY; view.setPointerCapture(e.pointerId); view.style.cursor='grabbing'; });
+  view.addEventListener('pointermove', e => {
+    if (drag === null) return;
+    S.elev = clamp(S.elev + (e.clientY - drag)*0.006, 6*PI/180, 70*PI/180); drag = e.clientY;
+  });
+  const endDrag = () => { drag = null; view.style.cursor='grab'; };
+  view.addEventListener('pointerup', endDrag); view.addEventListener('pointercancel', endDrag);
+
+  updateText();
+  // 처음 열 때 한 번 쪼개지는 모습 보여주기
+  setTimeout(() => { S.target = 1; splitBtn.textContent = '🧩 합치기'; }, 600);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
