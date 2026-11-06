@@ -74,6 +74,7 @@
     <div class="row" style="justify-content:space-between;margin:6px 0 0"><span class="hint" style="margin:0">↔ 좌우 드래그: 회전 · ↕ 상하 드래그: 보는 각도</span><label style="min-width:0;font-size:.9rem"><input type="checkbox" id="axesChk" checked> 좌표축 표시</label></div>
     <div class="btns">
       <button class="btn" id="splitBtn">✂ 쪼개기</button>
+      <button class="btn" id="stretchBtn">↕ 위아래로 늘이기</button>
       <button class="btn ghost" id="playBtn">▶ n 늘려보기</button>
     </div>
   </section>
@@ -84,6 +85,7 @@
       <div class="row"><label>조각 수 n</label><input id="n" type="range" min="1" max="100" value="8"><output id="nOut">8</output></div>
       <div class="row" id="rRow"><label>반지름 r</label><input id="r" type="range" min="1" max="5" step="0.5" value="3"><output id="rOut">3</output></div>
       <div class="row" id="hRow"><label>높이 h</label><input id="h" type="range" min="1" max="8" step="0.5" value="6"><output id="hOut">6</output></div>
+      <div class="row"><label>세로 배율 k</label><input id="k" type="range" min="0.4" max="2" step="0.05" value="1"><output id="kOut">1.00</output></div>
       <div class="row"><label>표본점</label>
         <div class="seg" id="ruleSeg" style="margin:0">
           <button data-v="left">왼쪽 끝</button>
@@ -109,6 +111,7 @@
       <h2>식으로 보기</h2>
       <div class="formula" id="fSum"></div>
       <div class="formula" id="fInt" style="margin-top:8px"></div>
+      <div class="formula" id="fStretch" style="margin-top:8px;white-space:normal;line-height:1.7"></div>
       <p class="note" id="explain"></p>
     </div>
   </section>
@@ -118,16 +121,24 @@
 (() => {
   const PI = Math.PI;
   const S = { shape:'cone', mode:'volume', rule:'mid', n:8, r:3, h:6,
+              k:1, kView:1, stretching:false, stretchT:0,
               p:0, target:0, elev:24*PI/180, azim:-0.6, axes:true, playing:false, flash:0 };
 
   // ---------- 입체 정의 ----------
   // 부피: 높이 z로 자르기 (가로 단면 = 원)  /  겉넓이: 옆면을 따라 잰 길이 s로 띠 자르기
-  function geom(){
-    const {shape, r, h} = S;
+  // 회전타원체(세로로 늘린 구)의 정확한 겉넓이: 가로 반지름 a, 세로 반지름 c
+  function spheroidArea(a, c){
+    if (Math.abs(a-c) < 1e-9) return 4*PI*a*a;
+    if (c > a){ const e = Math.sqrt(1 - a*a/(c*c)); return 2*PI*a*a*(1 + c/(a*e)*Math.asin(e)); }
+    const e = Math.sqrt(1 - c*c/(a*a)); return 2*PI*a*a*(1 + (1-e*e)/e*Math.atanh(e));
+  }
+  // k = 세로 배율. 입체를 위아래로 k배 늘인 모양을 만든다.
+  function geom(k = S.k){
+    const {shape, r} = S, h = S.h*k;
     if (shape === 'cone'){
       const l = Math.hypot(r, h);
       return {
-        vol:{ a:0, b:h, rad:y => r*(1 - y/h) },
+        H:h, vol:{ a:0, b:h, rad:y => r*(1 - y/h) },
         surf:{ L:l, rad:s => r*(1 - s/l), Y:s => h*s/l },
         bases:[{y:0, rad:r}],
         exactV: PI*r*r*h/3, exactS: PI*r*r + PI*r*l, l
@@ -135,18 +146,31 @@
     }
     if (shape === 'cyl'){
       return {
-        vol:{ a:0, b:h, rad:() => r },
+        H:h, vol:{ a:0, b:h, rad:() => r },
         surf:{ L:h, rad:() => r, Y:s => s },
         bases:[{y:0, rad:r},{y:h, rad:r}],
         exactV: PI*r*r*h, exactS: 2*PI*r*r + 2*PI*r*h
       };
     }
-    const R = r;
+    const R = r, c = R*k;
+    // 겉면을 따라 잰 길이 s ↔ 각도 θ 변환표 (늘어나면 호의 길이가 고르지 않으므로)
+    const M = 600, sArr = new Float64Array(M+1), dth = PI/M;
+    for (let i=1;i<=M;i++){
+      const t = (i-0.5)*dth;
+      sArr[i] = sArr[i-1] + Math.hypot(R*Math.cos(t), c*Math.sin(t))*dth;
+    }
+    const L = sArr[M];
+    const thetaOf = s => {
+      if (s <= 0) return 0; if (s >= L) return PI;
+      let lo = 0, hi = M;
+      while (hi - lo > 1){ const m = (lo+hi) >> 1; sArr[m] < s ? lo = m : hi = m; }
+      return (lo + (s - sArr[lo])/(sArr[hi] - sArr[lo]))*dth;
+    };
     return {
-      vol:{ a:-R, b:R, rad:y => Math.sqrt(Math.max(0, R*R - y*y)) },
-      surf:{ L:PI*R, rad:s => R*Math.sin(s/R), Y:s => -R*Math.cos(s/R) },
+      H:2*c, c, vol:{ a:-c, b:c, rad:y => R*Math.sqrt(Math.max(0, 1 - y*y/(c*c))) },
+      surf:{ L, rad:s => R*Math.sin(thetaOf(s)), Y:s => -c*Math.cos(thetaOf(s)) },
       bases:[],
-      exactV: 4/3*PI*R**3, exactS: 4*PI*R*R
+      exactV: 4/3*PI*R*R*c, exactS: spheroidArea(R, c)
     };
   }
 
@@ -194,7 +218,8 @@
     const sinE = Math.sin(S.elev), cosE = Math.cos(S.elev);
 
     // 세로(z) 범위 & 벌어짐
-    const yMin = S.shape==='sphere' ? -S.r : 0, yMax = S.shape==='sphere' ? S.r : S.h;
+    const kv = S.kView;
+    const yMin = S.shape==='sphere' ? -S.r*kv : 0, yMax = S.shape==='sphere' ? S.r*kv : S.h*kv;
     const H = yMax - yMin, spread = Math.max(0.9*H, 2), gap = spread / Math.max(n,1);
     const baseGap = 0.12*spread + 0.6;
     const maxR = S.r;
@@ -398,7 +423,7 @@
       const steps = 80;
       for (const sgn of [-1,1]){
         for (let k=0;k<=steps;k++){
-          const y = yMin + H*k/steps, R = g.vol.rad(y);
+          const y = g.vol.a + (g.vol.b - g.vol.a)*k/steps, R = g.vol.rad(y);
           const X = cxs + sgn*R*scale, Y = Ys(y);
           k ? ctx.lineTo(X,Y) : ctx.moveTo(X,Y);
         }
@@ -408,6 +433,7 @@
 
     ctx.fillStyle = css('--muted'); ctx.font = '13px sans-serif';
     ctx.fillText(`n = ${n}`, 12, 20);
+    ctx.fillText(`세로 배율 k = ${S.k.toFixed(2)}`, 12, 38);
   }
 
   // ---------- 리만합 그래프 ----------
@@ -416,7 +442,8 @@
     ctx.clearRect(0,0,w,h);
     const {g, list} = pieces(), n = list.length;
     const isV = S.mode === 'volume';
-    const a = isV ? g.vol.a : 0, b = isV ? g.vol.b : g.surf.L;
+    const gv = geom(Math.max(S.kView, S.k));
+    const a = isV ? gv.vol.a : 0, b = isV ? gv.vol.b : gv.surf.L;
     const f = isV ? (y => PI*g.vol.rad(y)**2) : (s => 2*PI*g.surf.rad(s));
     let fMax = 0;
     for (let k=0;k<=200;k++) fMax = Math.max(fMax, f(a+(b-a)*k/200));
@@ -481,13 +508,14 @@
         fi = `V = ∫<sub>0</sub><sup>h</sup> πr² dz = πr²h = ${fmt(g.exactV)}`;
         ex = '원기둥은 어느 높이에서 잘라도 단면이 같은 원이므로, n에 상관없이 리만합이 정확한 값과 같습니다.';
       } else {
-        fi = `V = ∫<sub>−R</sub><sup>R</sup> π(R²−z²) dz = 4⁄3·πR³ = ${fmt(g.exactV)}`;
+        fi = S.k === 1 ? `V = ∫<sub>−R</sub><sup>R</sup> π(R²−z²) dz = 4⁄3·πR³ = ${fmt(g.exactV)}`
+           : `V = ∫<sub>−c</sub><sup>c</sup> πR²(1−z²/c²) dz = 4⁄3·πR²c = ${fmt(g.exactV)}  (c = kR = ${g.c.toFixed(2)})`;
         ex = '구를 높이 z에서 자르면 반지름 √(R²−z²)인 원이 나옵니다(피타고라스 정리). 얇은 원판들을 모두 더하면 구의 부피에 가까워집니다.';
       }
     } else {
       ct = '띠의 둘레 L(s) = 2π·r(s) 의 리만합';
       cn = 's는 옆면(모선·호)을 따라 잰 길이. 막대 하나 = 띠 하나를 펼친 직사각형(둘레 × 폭 Δs).';
-      fs = `S ≈ Σ<sub>i=1</sub><sup>${n}</sup> 2π·r(s<sub>i</sub>*)·Δs ${baseArea? '+ 밑면' : ''},&nbsp; Δs = ${((sh==='cone'?g.l:sh==='cyl'?h:PI*r)/n).toFixed(3)}`;
+      fs = `S ≈ Σ<sub>i=1</sub><sup>${n}</sup> 2π·r(s<sub>i</sub>*)·Δs ${baseArea? '+ 밑면' : ''},&nbsp; Δs = ${(g.surf.L/n).toFixed(3)}`;
       if (sh==='cone'){
         fi = `S = πr² + ∫<sub>0</sub><sup>l</sup> 2π·r(1−s/l) ds = πr² + πrl = ${fmt(g.exactS)}  (l=${g.l.toFixed(3)})`;
         ex = '원뿔의 옆면을 모선 방향으로 n등분해 얇은 띠로 자릅니다. 각 띠를 펼치면 거의 직사각형(둘레 2πr × 폭 Δs)이고, 노란색 밑면 πr²를 더합니다.';
@@ -495,10 +523,22 @@
         fi = `S = 2πr² + ∫<sub>0</sub><sup>h</sup> 2πr ds = 2πr² + 2πrh = ${fmt(g.exactS)}`;
         ex = '원기둥의 옆면 띠는 모두 둘레가 2πr로 같아서 펼치면 직사각형이 됩니다. 위·아래 노란 밑면 두 개를 더합니다.';
       } else {
-        fi = `S = ∫<sub>0</sub><sup>π</sup> 2π·R sinθ · R dθ = 4πR² = ${fmt(g.exactS)}`;
+        fi = S.k === 1 ? `S = ∫<sub>0</sub><sup>π</sup> 2π·R sinθ · R dθ = 4πR² = ${fmt(g.exactS)}`
+           : `S = ∫<sub>0</sub><sup>L</sup> 2π·r(s) ds = ${fmt(g.exactS)}  (회전타원체, c = kR = ${g.c.toFixed(2)})`;
         ex = '구의 겉면을 위도선처럼 n개의 띠로 자릅니다. 각도 θ인 띠의 반지름은 R sinθ, 폭은 호의 길이 RΔθ입니다. 다 더하면 4πR²에 수렴합니다.';
       }
     }
+    // 세로로 늘였을 때의 변화
+    const g1 = geom(1), V1 = g1.exactV, S1 = g1.exactS;
+    let st = `세로 배율 k = ${S.k.toFixed(2)} → 실제 높이 ${g.H.toFixed(2)} (원래 ${g1.H.toFixed(2)})<br>`;
+    if (isV){
+      st += `부피: ${fmt(V1)} → ${fmt(g.exactV)} &nbsp;(<b>${(g.exactV/V1).toFixed(2)}배</b> = k배)<br>` +
+            `<span style="font-family:inherit;font-size:.9rem">원판의 반지름은 그대로, 두께 Δz만 k배 → 리만합의 모든 항이 k배 → 부피도 k배</span>`;
+    } else {
+      st += `겉넓이: ${fmt(S1)} → ${fmt(g.exactS)} &nbsp;(<b>${(g.exactS/S1).toFixed(2)}배</b>, k배가 아님)<br>` +
+            `<span style="font-family:inherit;font-size:.9rem">띠의 폭 Δs는 기울기에 따라 다르게 늘어나고 밑면은 그대로라서 겉넓이는 정확히 k배가 되지 않습니다</span>`;
+    }
+    T('fStretch').innerHTML = st;
     T('fSum').innerHTML = fs; T('fInt').innerHTML = fi; T('explain').textContent = ex;
     T('chartTitle').textContent = ct; T('chartNote').textContent = cn;
   }
@@ -511,6 +551,14 @@
       const sp = 0.7; // 초당 진행
       S.p = S.target > S.p ? Math.min(S.target, S.p + dt*sp) : Math.max(S.target, S.p - dt*sp);
     }
+    if (S.stretching){
+      S.stretchT += dt;
+      const w = Math.sin(S.stretchT*1.3);
+      S.k = +(1 + (w > 0 ? 0.8*w : 0.5*w)).toFixed(3);   // 0.5 ~ 1.8 사이를 오르내림
+      kEl.value = S.k; kOut.textContent = S.k.toFixed(2); updateText();
+    }
+    const kvT = S.stretching ? 1.8 : Math.max(1, S.k);
+    S.kView += (kvT - S.kView)*Math.min(1, dt*3);
     drawView(); drawChart();
     requestAnimationFrame(frame);
   }
@@ -530,6 +578,16 @@
     const el = document.getElementById(k), out = document.getElementById(k+'Out');
     el.addEventListener('input', () => { S[k] = +el.value; out.textContent = el.value; updateText(); });
   }
+  const kEl = document.getElementById('k'), kOut = document.getElementById('kOut');
+  const stretchBtn = document.getElementById('stretchBtn');
+  const stopStretch = () => { S.stretching = false; stretchBtn.textContent = '↕ 위아래로 늘이기'; };
+  kEl.addEventListener('input', () => { stopStretch(); S.k = +kEl.value; kOut.textContent = S.k.toFixed(2); updateText(); });
+  stretchBtn.addEventListener('click', () => {
+    if (S.stretching){ stopStretch(); return; }
+    S.stretching = true; S.stretchT = Math.asin(clamp((S.k-1)/(S.k>=1?0.8:0.5), -1, 1))/1.3;
+    stretchBtn.textContent = '⏸ 멈추기';
+    S.target = 0; splitBtn.textContent = '✂ 쪼개기';   // 원래 입체(합친 상태)로 늘이기
+  });
   const splitBtn = document.getElementById('splitBtn');
   splitBtn.addEventListener('click', () => {
     S.target = S.target ? 0 : 1;
