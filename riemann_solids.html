@@ -71,7 +71,7 @@
       <button data-v="surface">겉넓이</button>
     </div>
     <canvas id="view"></canvas>
-    <div class="hint">↕ 화면을 위아래로 드래그하면 보는 각도가 바뀝니다.</div>
+    <div class="row" style="justify-content:space-between;margin:6px 0 0"><span class="hint" style="margin:0">↔ 좌우 드래그: 회전 · ↕ 상하 드래그: 보는 각도</span><label style="min-width:0;font-size:.9rem"><input type="checkbox" id="axesChk" checked> 좌표축 표시</label></div>
     <div class="btns">
       <button class="btn" id="splitBtn">✂ 쪼개기</button>
       <button class="btn ghost" id="playBtn">▶ n 늘려보기</button>
@@ -118,10 +118,10 @@
 (() => {
   const PI = Math.PI;
   const S = { shape:'cone', mode:'volume', rule:'mid', n:8, r:3, h:6,
-              p:0, target:0, elev:24*PI/180, playing:false, flash:0 };
+              p:0, target:0, elev:24*PI/180, azim:-0.6, axes:true, playing:false, flash:0 };
 
   // ---------- 입체 정의 ----------
-  // 부피: 높이 y로 자르기 (가로 단면 = 원)  /  겉넓이: 옆면을 따라 잰 길이 s로 띠 자르기
+  // 부피: 높이 z로 자르기 (가로 단면 = 원)  /  겉넓이: 옆면을 따라 잰 길이 s로 띠 자르기
   function geom(){
     const {shape, r, h} = S;
     if (shape === 'cone'){
@@ -193,15 +193,23 @@
     const {g, list} = pieces(), n = list.length;
     const sinE = Math.sin(S.elev), cosE = Math.cos(S.elev);
 
-    // 세로 범위 & 벌어짐
+    // 세로(z) 범위 & 벌어짐
     const yMin = S.shape==='sphere' ? -S.r : 0, yMax = S.shape==='sphere' ? S.r : S.h;
     const H = yMax - yMin, spread = Math.max(0.9*H, 2), gap = spread / Math.max(n,1);
     const baseGap = 0.12*spread + 0.6;
     const maxR = S.r;
-    const totalH = H + spread + 2*baseGap;
-    const scale = Math.min((w*0.8)/(2*maxR), (h*0.86)/(totalH*cosE + 2*maxR*sinE));
-    const cxs = w/2, midY = (yMin+yMax)/2;
+    const axLen = maxR + 1.8;
+    const zLo = yMin - spread/2 - baseGap - 0.6, zHi = yMax + spread/2 + baseGap + 1.2;
+    const totalH = zHi - zLo;
+    const scale = Math.min((w*0.86)/(2*axLen), (h*0.92)/(totalH*cosE + 2*axLen*sinE));
+    const cxs = w/2, midY = (zLo+zHi)/2;
     const Ys = y => h/2 - (y - midY)*scale*cosE;
+    // 3차원 점 (x, y, z) → 화면 좌표  (z가 위쪽, 방위각 azim으로 회전)
+    const cosA = Math.cos(S.azim), sinA = Math.sin(S.azim);
+    const P = (x, y, z) => {
+      const xr = x*cosA - y*sinA, dr = x*sinA + y*cosA;
+      return { X: cxs + xr*scale, Y: Ys(z) + dr*scale*sinE, d: dr };
+    };
 
     // 조각별 쪼개짐 진행도 (위에서부터 차례로)
     const off = list.map((_,i) => {
@@ -232,6 +240,63 @@
       ctx.beginPath(); ctx.ellipse(cxs, sy, X, Math.max(ry,.5), 0, 0, 2*PI);
       ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = edge; ctx.lineWidth = 1; ctx.stroke();
     };
+
+    // ---------- 3차원 좌표계 ----------
+    const AX = [
+      { name:'x', col:'#e5484d', at:t => [t,0,0], lo:-axLen, hi:axLen },
+      { name:'y', col:'#30a46c', at:t => [0,t,0], lo:-axLen, hi:axLen },
+      { name:'z', col:'#3e63dd', at:t => [0,0,t], lo:zLo, hi:zHi },
+    ];
+    const tickStep = scale > 34 ? 1 : 2;
+    const pt = (ax, t) => P(...ax.at(t));
+    // 축의 [t0,t1] 구간을 눈금과 함께 그리기
+    const axisSeg = (ax, t0, t1, dashed, alpha) => {
+      if (t1 <= t0) return;
+      const a = pt(ax,t0), b = pt(ax,t1);
+      ctx.save(); ctx.globalAlpha = alpha;
+      ctx.strokeStyle = ax.col; ctx.lineWidth = dashed ? 1.2 : 2;
+      ctx.setLineDash(dashed ? [4,4] : []);
+      ctx.beginPath(); ctx.moveTo(a.X,a.Y); ctx.lineTo(b.X,b.Y); ctx.stroke();
+      ctx.setLineDash([]);
+      if (!dashed){
+        ctx.fillStyle = ax.col; ctx.font = '11px sans-serif'; ctx.lineWidth = 1.5;
+        for (let k = Math.ceil(t0/tickStep)*tickStep; k <= t1; k += tickStep){
+          if (k === 0 || Math.abs(k - ax.hi) < 0.4) continue;
+          const q = pt(ax,k);
+          ctx.beginPath();
+          if (ax.name === 'z'){ ctx.moveTo(q.X-4,q.Y); ctx.lineTo(q.X+4,q.Y); ctx.stroke(); ctx.fillText(k, q.X+7, q.Y+4); }
+          else { ctx.moveTo(q.X,q.Y-4); ctx.lineTo(q.X,q.Y+4); ctx.stroke(); ctx.fillText(k, q.X-4, q.Y+15); }
+        }
+      }
+      ctx.restore();
+    };
+    const arrowHead = ax => {
+      const a = pt(ax, ax.hi - 0.3), b = pt(ax, ax.hi);
+      const ang = Math.atan2(b.Y-a.Y, b.X-a.X), L = 11;
+      ctx.fillStyle = ax.col; ctx.beginPath();
+      ctx.moveTo(b.X, b.Y);
+      ctx.lineTo(b.X - L*Math.cos(ang-0.4), b.Y - L*Math.sin(ang-0.4));
+      ctx.lineTo(b.X - L*Math.cos(ang+0.4), b.Y - L*Math.sin(ang+0.4));
+      ctx.closePath(); ctx.fill();
+      const lab = pt(ax, ax.hi + (ax.name==='z' ? 0.35 : 0.5));
+      ctx.font = 'bold 15px serif'; ctx.fillText(ax.name, lab.X - 4, lab.Y + (ax.name==='z' ? -2 : 5));
+    };
+    const tipFront = ax => ax.name === 'z' || pt(ax, ax.hi).d > 0;
+
+    if (S.axes){
+      // xy 평면 격자 (z = 0)
+      const G = Math.floor(axLen - 0.5);
+      ctx.strokeStyle = css('--muted'); ctx.globalAlpha = 0.22; ctx.lineWidth = 1;
+      for (let k=-G;k<=G;k++){
+        let a = P(k,-G,0), b = P(k,G,0);
+        ctx.beginPath(); ctx.moveTo(a.X,a.Y); ctx.lineTo(b.X,b.Y); ctx.stroke();
+        a = P(-G,k,0); b = P(G,k,0);
+        ctx.beginPath(); ctx.moveTo(a.X,a.Y); ctx.lineTo(b.X,b.Y); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      // 축 전체 (입체 뒤에 가려질 부분 포함)
+      AX.forEach(ax => { axisSeg(ax, ax.lo, ax.hi, false, 1); if (!tipFront(ax)) arrowHead(ax); });
+    }
 
     // 아래 밑면은 먼저
     bases.filter(b => b.y < midY).forEach(b => drawDiskFlat(b.y, b.rad, 'hsl(40,85%,60%)'));
@@ -283,6 +348,33 @@
       });
     }
     bases.filter(b => b.y >= midY).forEach(b => drawDiskFlat(b.y, b.rad, 'hsl(40,85%,60%)'));
+
+    if (S.axes){
+      // 입체 속에 숨은 부분은 점선으로
+      AX.forEach(ax => axisSeg(ax, ax.lo, ax.hi, true, 0.6));
+      // 입체 바깥(앞쪽)으로 보이는 부분은 다시 실선으로
+      let zTop = -Infinity, zBot = Infinity, rBot = 0;
+      list.forEach((pc,i) => {
+        if (pc.rad*scale < .3) return;
+        zTop = Math.max(zTop, pc.y1+off[i].dy);
+        const zb = pc.y0+off[i].dy;
+        if (zb < zBot){ zBot = zb; rBot = pc.rad; }
+      });
+      bases.forEach(b => { zTop = Math.max(zTop, b.y); if (b.y < zBot){ zBot = b.y; rBot = b.rad; } });
+      const zAx = AX[2];
+      // 위쪽은 입체 위에 있으므로 그대로 보임
+      axisSeg(zAx, zTop, zAx.hi, false, 1);
+      // 맨 아래 조각의 앞쪽 옆면이 가리는 만큼 내려서 그리기
+      axisSeg(zAx, zAx.lo, zBot - rBot*sinE/cosE, false, 1);
+      [AX[0], AX[1]].forEach(ax => {
+        if (pt(ax, ax.hi).d > 0) axisSeg(ax, maxR, ax.hi, false, 1);
+        else axisSeg(ax, ax.lo, -maxR, false, 1);
+      });
+      AX.forEach(ax => { if (tipFront(ax)) arrowHead(ax); });
+      const o = P(0,0,0);
+      ctx.fillStyle = css('--muted'); ctx.font = 'italic 13px serif';
+      ctx.fillText('O', o.X - 14, o.Y + 14);
+    }
 
     // 칼날(자르는 선) 반짝임
     if (S.p > 0 && S.p < 1 && n <= 60){
@@ -337,8 +429,8 @@
     ctx.strokeStyle = css('--line'); ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, h-padB); ctx.lineTo(w-padR, h-padB); ctx.stroke();
     ctx.fillStyle = css('--muted'); ctx.font = '11px sans-serif';
-    ctx.fillText(isV ? 'A(y)' : 'L(s)', 6, padT+10);
-    ctx.fillText(isV ? 'y' : 's', w-padR-8, h-8);
+    ctx.fillText(isV ? 'A(z)' : 'L(s)', 6, padT+10);
+    ctx.fillText(isV ? 'z' : 's', w-padR-8, h-8);
     ctx.fillText(a.toFixed(1), padL-6, h-10);
     ctx.fillText(b.toFixed(1), X(b)-18, h-10);
 
@@ -379,18 +471,18 @@
 
     let fs='', fi='', ex='', ct='', cn='';
     if (isV){
-      ct = '단면적 A(y) = π·r(y)² 의 리만합';
+      ct = '단면적 A(z) = π·r(z)² 의 리만합';
       cn = '빨간 곡선 아래 넓이 = 정확한 부피. 막대 넓이의 합 = 원판(디스크) n개의 부피 합.';
-      fs = `V ≈ Σ<sub>i=1</sub><sup>${n}</sup> π·r(y<sub>i</sub>*)²·Δy,&nbsp; Δy = ${((g.vol.b-g.vol.a)/n).toFixed(3)}`;
+      fs = `V ≈ Σ<sub>i=1</sub><sup>${n}</sup> π·r(z<sub>i</sub>*)²·Δz,&nbsp; Δz = ${((g.vol.b-g.vol.a)/n).toFixed(3)}`;
       if (sh==='cone'){
-        fi = `V = ∫<sub>0</sub><sup>h</sup> π·(r(1−y/h))² dy = ⅓πr²h = ${fmt(g.exactV)}`;
-        ex = '원뿔을 높이 방향으로 n등분하면 얇은 원기둥(원판) n개가 됩니다. 높이 y에서 반지름은 r(1−y/h)로 일정하게 줄어듭니다. 왼쪽 끝 표본은 과대, 오른쪽 끝은 과소 추정이 됩니다.';
+        fi = `V = ∫<sub>0</sub><sup>h</sup> π·(r(1−z/h))² dz = ⅓πr²h = ${fmt(g.exactV)}`;
+        ex = '원뿔을 높이 방향으로 n등분하면 얇은 원기둥(원판) n개가 됩니다. 높이 z에서 반지름은 r(1−z/h)로 일정하게 줄어듭니다. 왼쪽 끝 표본은 과대, 오른쪽 끝은 과소 추정이 됩니다.';
       } else if (sh==='cyl'){
-        fi = `V = ∫<sub>0</sub><sup>h</sup> πr² dy = πr²h = ${fmt(g.exactV)}`;
+        fi = `V = ∫<sub>0</sub><sup>h</sup> πr² dz = πr²h = ${fmt(g.exactV)}`;
         ex = '원기둥은 어느 높이에서 잘라도 단면이 같은 원이므로, n에 상관없이 리만합이 정확한 값과 같습니다.';
       } else {
-        fi = `V = ∫<sub>−R</sub><sup>R</sup> π(R²−y²) dy = 4⁄3·πR³ = ${fmt(g.exactV)}`;
-        ex = '구를 높이 y에서 자르면 반지름 √(R²−y²)인 원이 나옵니다(피타고라스 정리). 얇은 원판들을 모두 더하면 구의 부피에 가까워집니다.';
+        fi = `V = ∫<sub>−R</sub><sup>R</sup> π(R²−z²) dz = 4⁄3·πR³ = ${fmt(g.exactV)}`;
+        ex = '구를 높이 z에서 자르면 반지름 √(R²−z²)인 원이 나옵니다(피타고라스 정리). 얇은 원판들을 모두 더하면 구의 부피에 가까워집니다.';
       }
     } else {
       ct = '띠의 둘레 L(s) = 2π·r(s) 의 리만합';
@@ -460,12 +552,15 @@
 
   // 드래그로 시점 변경
   let drag = null;
-  view.addEventListener('pointerdown', e => { drag = e.clientY; view.setPointerCapture(e.pointerId); view.style.cursor='grabbing'; });
+  view.addEventListener('pointerdown', e => { drag = {x:e.clientX, y:e.clientY}; view.setPointerCapture(e.pointerId); view.style.cursor='grabbing'; });
   view.addEventListener('pointermove', e => {
     if (drag === null) return;
-    S.elev = clamp(S.elev + (e.clientY - drag)*0.006, 6*PI/180, 70*PI/180); drag = e.clientY;
+    S.elev = clamp(S.elev + (e.clientY - drag.y)*0.006, 6*PI/180, 70*PI/180);
+    S.azim += (e.clientX - drag.x)*0.01;
+    drag = {x:e.clientX, y:e.clientY};
   });
   const endDrag = () => { drag = null; view.style.cursor='grab'; };
+  document.getElementById('axesChk').addEventListener('change', e => { S.axes = e.target.checked; });
   view.addEventListener('pointerup', endDrag); view.addEventListener('pointercancel', endDrag);
 
   updateText();
